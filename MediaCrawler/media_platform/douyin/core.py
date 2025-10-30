@@ -48,6 +48,7 @@ class DouYinCrawler(AbstractCrawler):
         self.index_url = "https://www.douyin.com"
         self.cdp_manager = None
         self._is_unified_browser = False  # 🔥 标记是否为统一浏览器模式
+        self.progress_callback = None  # 🔥 进度回调函数
 
     async def start(self) -> None:
         playwright_proxy_format, httpx_proxy_format = None, None
@@ -174,6 +175,13 @@ class DouYinCrawler(AbstractCrawler):
                     aweme_list.append(aweme_info.get("aweme_id", ""))
                     await douyin_store.update_douyin_aweme(aweme_item=aweme_info)
                     await self.get_aweme_media(aweme_item=aweme_info)
+
+                    # 🔥 更新进度
+                    if self.progress_callback:
+                        current = len(aweme_list)
+                        total = max_notes_to_collect
+                        title = aweme_info.get("desc", "")[:20]
+                        self.progress_callback(current, total, f"正在采集第{current}个视频: {title}...")
 
                 # 🔥 如果已达到目标数量，退出循环
                 if len(aweme_list) >= max_notes_to_collect:

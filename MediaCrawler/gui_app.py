@@ -183,14 +183,36 @@ class MediaCrawlerGUI:
         
         keywords_frame = ctk.CTkFrame(search_frame)
         keywords_frame.pack(fill="x", padx=20, pady=5)
-        
-        ctk.CTkLabel(keywords_frame, text="关键词:").pack(side="left", padx=(0, 5))
-        self.keywords_entry = ctk.CTkEntry(
+
+        # 🔥 批量关键词输入 - 改为多行文本框
+        keywords_label_frame = ctk.CTkFrame(keywords_frame)
+        keywords_label_frame.pack(fill="x", pady=(0, 5))
+
+        ctk.CTkLabel(
+            keywords_label_frame,
+            text="关键词 (支持批量):",
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).pack(side="left", padx=(0, 5))
+
+        ctk.CTkLabel(
+            keywords_label_frame,
+            text="💡 每行一组关键词，自动批量采集",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        ).pack(side="left")
+
+        # 多行文本框
+        self.keywords_textbox = ctk.CTkTextbox(
             keywords_frame,
-            placeholder_text="请输入关键词，多个关键词用逗号分隔",
-            width=400
+            height=80,
+            width=400,
+            font=ctk.CTkFont(size=12)
         )
-        self.keywords_entry.pack(side="left", fill="x", expand=True)
+        self.keywords_textbox.pack(fill="both", expand=True)
+
+        # 插入提示文本
+        self.keywords_textbox.insert("1.0", "美食 探店\n旅游 攻略\n科技 数码")
+        self.keywords_textbox.bind("<FocusIn>", self.clear_keywords_placeholder)
         
         # 指定内容详情
         detail_frame = ctk.CTkFrame(mode_frame)
@@ -648,17 +670,25 @@ class MediaCrawlerGUI:
             state="disabled"
         )
         self.stop_button.pack(side="left", padx=5)
-    
+
+    def clear_keywords_placeholder(self, event):
+        """清除关键词占位符"""
+        current_text = self.keywords_textbox.get("1.0", "end-1c")
+        if current_text == "美食 探店\n旅游 攻略\n科技 数码":
+            self.keywords_textbox.delete("1.0", "end")
+
     def load_config(self):
         """加载配置"""
         try:
             # 从config模块加载默认配置
             self.platform_var.set(config.PLATFORM)
-            self.keywords_entry.insert(0, config.KEYWORDS)
+            # 🔥 更新：使用textbox而不是entry
+            self.keywords_textbox.delete("1.0", "end")
+            self.keywords_textbox.insert("1.0", config.KEYWORDS)
             self.crawler_type_var.set(config.CRAWLER_TYPE)
             self.login_type_var.set(config.LOGIN_TYPE)
             self.save_format_var.set(config.SAVE_DATA_OPTION)
-            
+
             # 更新界面状态
             self.on_mode_change()
         except Exception as e:
@@ -673,18 +703,19 @@ class MediaCrawlerGUI:
     def on_mode_change(self):
         """采集模式改变时的回调"""
         mode = self.crawler_type_var.get()
-        
+
         # 启用/禁用相应的输入框
+        # 🔥 更新：textbox使用不同的状态控制方法
         if mode == "search":
-            self.keywords_entry.configure(state="normal")
+            self.keywords_textbox.configure(state="normal")
             self.detail_entry.configure(state="disabled")
             self.creator_entry.configure(state="disabled")
         elif mode == "detail":
-            self.keywords_entry.configure(state="disabled")
+            self.keywords_textbox.configure(state="disabled")
             self.detail_entry.configure(state="normal")
             self.creator_entry.configure(state="disabled")
         elif mode == "creator":
-            self.keywords_entry.configure(state="disabled")
+            self.keywords_textbox.configure(state="disabled")
             self.detail_entry.configure(state="disabled")
             self.creator_entry.configure(state="normal")
     
@@ -1266,9 +1297,10 @@ class MediaCrawlerGUI:
     def validate_config(self) -> bool:
         """验证配置"""
         mode = self.crawler_type_var.get()
-        
+
         if mode == "search":
-            keywords = self.keywords_entry.get().strip()
+            # 🔥 更新：从textbox获取关键词
+            keywords = self.keywords_textbox.get("1.0", "end-1c").strip()
             if not keywords:
                 messagebox.showerror("配置错误", "请输入搜索关键词")
                 return False
@@ -1338,34 +1370,58 @@ class MediaCrawlerGUI:
             raise
 
     def run_douyin_unified_crawler(self, max_count: int, content_type: str):
-        """🔥 抖音统一浏览器采集"""
+        """🔥 抖音统一浏览器采集 - 支持批量关键词"""
         try:
             # 检查统一浏览器状态
             if not self.browser_ready or not self.shared_context:
                 raise Exception("统一浏览器未就绪，请先完成登录")
 
-            # 获取关键词
-            keywords = self.keywords_entry.get().strip()
-            if not keywords:
+            # 🔥 获取批量关键词（支持多行）
+            keywords_text = self.keywords_textbox.get("1.0", "end-1c").strip()
+            if not keywords_text:
                 raise Exception("请输入搜索关键词")
 
-            print(f"🔥 开始抖音统一浏览器采集")
-            print(f"🔍 关键词: {keywords}")
-            print(f"📊 最大数量: {max_count}")
+            # 🔥 解析批量关键词：每行一组
+            keywords_list = [line.strip() for line in keywords_text.split('\n') if line.strip()]
 
-            # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
-            if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
-                print("✅ 使用现有浏览器事件循环（threadsafe）")
-                future = asyncio.run_coroutine_threadsafe(
-                    self.async_douyin_crawler(keywords, max_count, content_type),
-                    self.browser_loop
-                )
-                # 等待完成（最多10分钟）
-                future.result(timeout=600)
-            else:
-                # 如果没有事件循环，创建新的
-                print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
-                asyncio.run(self.async_douyin_crawler(keywords, max_count, content_type))
+            if not keywords_list:
+                raise Exception("请输入有效的搜索关键词")
+
+            print(f"🔥 开始抖音批量采集")
+            print(f"📋 关键词组数: {len(keywords_list)}")
+            print(f"📊 每组最大数量: {max_count}")
+
+            # 🔥 批量执行每组关键词
+            total_groups = len(keywords_list)
+            for index, keywords in enumerate(keywords_list, 1):
+                if self.stop_flag:
+                    print(f"⏹️ 用户停止采集")
+                    break
+
+                print(f"\n{'='*60}")
+                print(f"🔍 [{index}/{total_groups}] 正在采集关键词: {keywords}")
+                print(f"{'='*60}\n")
+
+                # 更新状态
+                self.root.after(0, lambda i=index, t=total_groups, k=keywords:
+                    self.update_status(f"[{i}/{t}] 正在采集: {k}"))
+
+                # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
+                if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.async_douyin_crawler(keywords, max_count, content_type, index, total_groups),
+                        self.browser_loop
+                    )
+                    # 等待完成（最多10分钟）
+                    future.result(timeout=600)
+                else:
+                    # 如果没有事件循环，创建新的
+                    print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
+                    asyncio.run(self.async_douyin_crawler(keywords, max_count, content_type, index, total_groups))
+
+                print(f"✅ [{index}/{total_groups}] 关键词 '{keywords}' 采集完成\n")
+
+            print(f"\n🎉 批量采集全部完成！共完成 {len(keywords_list)} 组关键词")
 
         except Exception as e:
             print(f"❌ 抖音统一浏览器采集失败: {e}")
@@ -1373,8 +1429,9 @@ class MediaCrawlerGUI:
             traceback.print_exc()
             raise
 
-    async def async_douyin_crawler(self, keywords: str, max_count: int, content_type: str):
-        """异步抖音采集任务"""
+    async def async_douyin_crawler(self, keywords: str, max_count: int, content_type: str,
+                                   current_index: int = 1, total_groups: int = 1):
+        """异步抖音采集任务 - 支持批量关键词"""
         try:
             from 统一浏览器采集器 import run_unified_crawler
 
@@ -1386,9 +1443,11 @@ class MediaCrawlerGUI:
             output_dir = self.output_dir_var.get()
 
             # 更新状态
-            self.root.after(0, lambda: self.update_status(f"🔥 使用统一浏览器采集{keywords}..."))
+            status_msg = f"🔥 [{current_index}/{total_groups}] 采集: {keywords}..."
+            self.root.after(0, lambda: self.update_status(status_msg))
 
             print(f"📋 GUI配置参数:")
+            print(f"   关键词: {keywords}")
             print(f"   视频数量: {max_count} 个")
             print(f"   每个视频评论数: {max_comments_per_video} 条")
             print(f"   一级评论: {enable_comments}")
@@ -1396,7 +1455,20 @@ class MediaCrawlerGUI:
             print(f"   保存格式: {save_format}")
             print(f"   输出目录: {output_dir}")
 
-            # 🔥 使用统一浏览器进行采集，传递完整配置
+            # 🔥 定义进度回调函数
+            def progress_callback(current, total, message):
+                """进度回调：更新GUI进度显示"""
+                progress = current / total if total > 0 else 0
+                progress_text = f"[{current_index}/{total_groups}] {current}/{total} {content_type}"
+
+                # 在主线程中更新UI
+                self.root.after(0, lambda: self.progress_bar.set(progress))
+                self.root.after(0, lambda: self.progress_text.configure(text=progress_text))
+                self.root.after(0, lambda: self.update_status(f"🔥 {message}"))
+
+                print(f"📊 进度: [{current}/{total}] {message}")
+
+            # 🔥 使用统一浏览器进行采集，传递完整配置和进度回调
             generated_files = await run_unified_crawler(
                 keywords=keywords,
                 shared_context=self.shared_context,
@@ -1406,12 +1478,14 @@ class MediaCrawlerGUI:
                 enable_comments=enable_comments,
                 enable_sub_comments=enable_sub_comments,
                 save_format=save_format,
-                output_dir=output_dir
+                output_dir=output_dir,
+                progress_callback=progress_callback
             )
 
             # 采集完成
             save_path = output_dir if output_dir else f"data/douyin/{save_format}/"
-            self.root.after(0, lambda: self.update_status("✅ 统一浏览器采集完成"))
+            complete_msg = f"✅ [{current_index}/{total_groups}] {keywords} 采集完成"
+            self.root.after(0, lambda: self.update_status(complete_msg))
 
             # 🔥 构建文件信息
             file_info = ""
@@ -1421,19 +1495,25 @@ class MediaCrawlerGUI:
                 if "contents" in generated_files:
                     file_info += f"\n📄 内容文件: {generated_files['contents']}"
 
-            self.root.after(0, lambda: messagebox.showinfo(
-                "采集完成",
-                f"🎉 {keywords} 采集完成！\n\n"
-                f"📊 采集了 {max_count} 个{content_type}\n"
-                f"💬 每个视频最多 {max_comments_per_video} 条评论\n"
-                f"💾 保存格式: {save_format.upper()}\n"
-                f"📁 保存位置: {save_path}"
-                f"{file_info}\n\n"
-                f"💡 提示: 评论内容在comments文件中"
-            ))
+            # 🔥 只在最后一组时显示完成提示
+            if current_index == total_groups:
+                # 🔥 清空关键词输入框，方便下次输入
+                self.root.after(0, lambda: self.keywords_textbox.delete("1.0", "end"))
 
-            # 🔥 自动打开评论文件（如果存在）
-            if generated_files and "comments" in generated_files:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "批量采集完成",
+                    f"🎉 批量采集全部完成！\n\n"
+                    f"📋 共完成 {total_groups} 组关键词\n"
+                    f"📊 每组采集 {max_count} 个{content_type}\n"
+                    f"💬 每个视频最多 {max_comments_per_video} 条评论\n"
+                    f"💾 保存格式: {save_format.upper()}\n"
+                    f"📁 保存位置: {save_path}\n\n"
+                    f"💡 提示: 每组关键词的数据已独立保存\n"
+                    f"✨ 关键词输入框已清空，可以输入新关键词继续采集"
+                ))
+
+            # 🔥 自动打开最后一组的评论文件（如果存在）
+            if current_index == total_groups and generated_files and "comments" in generated_files:
                 import os
                 import subprocess
                 import platform
@@ -1447,7 +1527,7 @@ class MediaCrawlerGUI:
                             subprocess.run(["open", comments_file])
                         else:  # Linux
                             subprocess.run(["xdg-open", comments_file])
-                        print(f"✅ 已自动打开评论文件: {comments_file}")
+                        print(f"✅ 已自动打开最后一组的评论文件: {comments_file}")
                     except Exception as e:
                         print(f"⚠️ 无法自动打开文件: {e}")
 
@@ -1540,7 +1620,10 @@ class MediaCrawlerGUI:
 
         # 更新关键词
         if config.CRAWLER_TYPE == "search":
-            config.KEYWORDS = self.keywords_entry.get().strip()
+            # 🔥 更新：从textbox获取关键词（只取第一行作为默认配置）
+            keywords_text = self.keywords_textbox.get("1.0", "end-1c").strip()
+            # 取第一行作为默认关键词
+            config.KEYWORDS = keywords_text.split('\n')[0] if keywords_text else ""
 
         # 更新数量设置
         try:
@@ -1628,6 +1711,7 @@ MediaCrawler 使用帮助
         try:
             from playwright.async_api import async_playwright
             import sys
+            import os  # 🔥 修复：将 import os 移到函数顶部，避免作用域问题
 
             if self.shared_browser and self.browser_ready and self.current_platform == platform:
                 print(f"🔗 复用现有干净浏览器实例 ({platform})")
@@ -1641,7 +1725,6 @@ MediaCrawler 使用帮助
             # 🔥 设置 Playwright 浏览器路径（EXE 打包后需要）
             if getattr(sys, 'frozen', False):
                 # 如果是打包后的 EXE
-                import os
                 # Playwright 会自动使用系统安装的浏览器或下载的浏览器
                 # 设置环境变量让 Playwright 知道从哪里找浏览器
                 playwright_browsers_path = os.path.join(os.path.expanduser("~"), ".cache", "ms-playwright")

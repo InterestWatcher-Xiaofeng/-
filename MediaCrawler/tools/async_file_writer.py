@@ -98,10 +98,43 @@ class AsyncFileWriter:
 
         pathlib.Path(base_path).mkdir(parents=True, exist_ok=True)
 
-        # 🔥 生成带时间戳的唯一文件名（每次采集都创建新文件）
+        # 🔥 新命名规则：平台_关键词_类型_时间戳.格式
+        import config
+        import re
         import time
+
+        # 获取关键词并清理特殊字符
+        keywords = getattr(config, 'KEYWORDS', '')
+        clean_keywords = re.sub(r'[\\/:*?"<>|\s]+', '_', keywords.strip())
+        if not clean_keywords:
+            clean_keywords = "未命名"
+
+        # 平台名称映射
+        platform_names = {
+            "douyin": "抖音",
+            "xhs": "小红书",
+            "kuaishou": "快手",
+            "bilibili": "B站",
+            "weibo": "微博",
+            "tieba": "贴吧",
+            "zhihu": "知乎"
+        }
+        platform_name = platform_names.get(self.platform, self.platform)
+
+        # 类型名称映射
+        type_names = {
+            "comments": "评论",
+            "contents": "内容",
+            "creators": "创作者",
+            "videos": "视频"
+        }
+        type_name = type_names.get(item_type, item_type)
+
+        # 🔥 生成时间戳（确保每次搜索都是新文件）
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        file_name = f"{self.crawler_type}_{item_type}_{timestamp}.{file_type}"
+
+        # 🔥 新文件名格式：平台_关键词_类型_时间戳.格式
+        file_name = f"{platform_name}_{clean_keywords}_{type_name}_{timestamp}.{file_type}"
         file_path = f"{base_path}/{file_name}"
 
         # 🔥 记录文件路径（使用cache_key作为键）
