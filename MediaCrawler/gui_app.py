@@ -56,6 +56,14 @@ class MediaCrawlerGUI:
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
 
+        # 🔥 设置窗口图标
+        try:
+            icon_path = Path(__file__).parent / "icon.ico"
+            if icon_path.exists():
+                self.root.iconbitmap(str(icon_path))
+        except Exception as e:
+            logger.warning(f"设置图标失败: {e}")
+
         # 配置变量
         self.config_vars = {}
         self.current_task = None
@@ -75,16 +83,16 @@ class MediaCrawlerGUI:
         # 🔥 浏览器驱动状态
         self.browser_driver_installed = None  # None=未检测, True=已安装, False=未安装
 
-        # 平台信息
+        # 平台信息 - 只保留4个核心平台
         self.platforms = {
             "xhs": {"name": "小红书", "icon": "🔴", "color": "#FF2442"},
             "dy": {"name": "抖音", "icon": "📱", "color": "#000000"},
-            "ks": {"name": "快手", "icon": "⚡", "color": "#FF6600"},
             "bili": {"name": "B站", "icon": "📺", "color": "#00A1D6"},
-            "wb": {"name": "微博", "icon": "🐦", "color": "#E6162D"},
-            "tieba": {"name": "贴吧", "icon": "🗣️", "color": "#4E6EF2"},
             "zhihu": {"name": "知乎", "icon": "🧠", "color": "#0084FF"}
         }
+
+        # 停止标志
+        self.stop_crawling = False
 
         self.setup_ui()
         self.load_config()

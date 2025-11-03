@@ -119,13 +119,22 @@ class AsyncFileWriter:
         }
         platform_name = platform_names.get(self.platform, self.platform)
 
+        # 类型名称映射
+        type_names = {
+            "comments": "评论",
+            "contents": "内容",
+            "creators": "创作者",
+            "videos": "视频"
+        }
+        type_name = type_names.get(item_type, item_type)
+
         # 🔥 根据采集模式决定文件名
         crawler_type = getattr(config, 'CRAWLER_TYPE', 'search')
 
         if crawler_type == "detail":
             # 🔥 多链接模式：时间戳_X条视频_评论.csv
             video_count = len(getattr(config, 'DY_SPECIFIED_ID_LIST', []))
-            file_name = f"{timestamp}_{video_count}条视频_评论.{file_type}"
+            file_name = f"{timestamp}_{video_count}条视频_{type_name}.{file_type}"
         elif crawler_type == "creator":
             # 🔥 创作者模式：博主名_X条视频_评论.csv
             if self.creator_info and self.creator_info.get("nickname"):
@@ -134,19 +143,19 @@ class AsyncFileWriter:
                 video_count = self.creator_info.get("video_count", 0)
                 # 清理昵称中的特殊字符
                 clean_nickname = re.sub(r'[\\/:*?"<>|\s]+', '_', nickname)
-                file_name = f"{clean_nickname}_{video_count}条视频_评论.{file_type}"
+                file_name = f"{clean_nickname}_{video_count}条视频_{type_name}.{file_type}"
             else:
                 # 降级方案：使用创作者ID
                 creator_id = getattr(config, 'DY_CREATOR_ID_LIST', ['未命名'])[0]
                 clean_creator = re.sub(r'[\\/:*?"<>|\s]+', '_', str(creator_id))
-                file_name = f"{timestamp}_{clean_creator}_评论.{file_type}"
+                file_name = f"{timestamp}_{clean_creator}_{type_name}.{file_type}"
         else:
-            # 关键词搜索模式：时间戳_关键词_评论.csv
+            # 关键词搜索模式：关键词_时间戳_评论.csv
             keywords = getattr(config, 'KEYWORDS', '')
             clean_keywords = re.sub(r'[\\/:*?"<>|\s]+', '_', keywords.strip())
             if not clean_keywords:
                 clean_keywords = "未命名"
-            file_name = f"{timestamp}_{clean_keywords}_评论.{file_type}"
+            file_name = f"{clean_keywords}_{timestamp}_{type_name}.{file_type}"
 
         file_path = f"{base_path}/{file_name}"
 
