@@ -255,17 +255,32 @@ class DouYinCrawler(AbstractCrawler):
             utils.logger.info(f"[DouYinCrawler.batch_get_note_comments] Crawling comment mode is not enabled")
             return
 
+        # 🔥 显示总数
+        total_videos = len(aweme_list)
+        utils.logger.info(f"[DouYinCrawler.batch_get_note_comments] 开始采集 {total_videos} 个视频的评论")
+        print(f"\n📊 开始采集 {total_videos} 个视频的评论\n")
+
         task_list: List[Task] = []
         semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
-        for aweme_id in aweme_list:
-            task = asyncio.create_task(self.get_comments(aweme_id, semaphore), name=aweme_id)
+        for index, aweme_id in enumerate(aweme_list, 1):
+            # 🔥 显示当前进度
+            print(f"🎬 [{index}/{total_videos}] 正在采集视频 {aweme_id} 的评论...")
+            utils.logger.info(f"[DouYinCrawler.batch_get_note_comments] [{index}/{total_videos}] 正在采集视频 {aweme_id}")
+
+            task = asyncio.create_task(self.get_comments(aweme_id, semaphore, index, total_videos), name=aweme_id)
             task_list.append(task)
         if len(task_list) > 0:
             await asyncio.wait(task_list)
 
-    async def get_comments(self, aweme_id: str, semaphore: asyncio.Semaphore) -> None:
+        print(f"\n✅ 所有 {total_videos} 个视频的评论采集完成!\n")
+
+    async def get_comments(self, aweme_id: str, semaphore: asyncio.Semaphore, index: int = 0, total: int = 0) -> None:
         async with semaphore:
             try:
+                # 🔥 显示开始采集
+                if index > 0 and total > 0:
+                    print(f"   💬 [{index}/{total}] 开始获取视频 {aweme_id} 的评论...")
+
                 # 将关键词列表传递给 get_aweme_all_comments 方法
                 # Use fixed crawling interval
                 crawl_interval = config.CRAWLER_MAX_SLEEP_SEC
@@ -278,10 +293,17 @@ class DouYinCrawler(AbstractCrawler):
                 )
                 # Sleep after fetching comments
                 await asyncio.sleep(crawl_interval)
+
+                # 🔥 显示完成
+                if index > 0 and total > 0:
+                    print(f"   ✅ [{index}/{total}] 视频 {aweme_id} 评论采集完成")
+
                 utils.logger.info(f"[DouYinCrawler.get_comments] Sleeping for {crawl_interval} seconds after fetching comments for aweme {aweme_id}")
                 utils.logger.info(f"[DouYinCrawler.get_comments] aweme_id: {aweme_id} comments have all been obtained and filtered ...")
             except DataFetchError as e:
                 utils.logger.error(f"[DouYinCrawler.get_comments] aweme_id: {aweme_id} get comments failed, error: {e}")
+                if index > 0 and total > 0:
+                    print(f"   ❌ [{index}/{total}] 视频 {aweme_id} 评论采集失败: {e}")
 
     async def get_creators_and_videos(self) -> None:
         """

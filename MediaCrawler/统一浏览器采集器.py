@@ -75,6 +75,7 @@ class UnifiedBrowserCrawler:
             config.ENABLE_GET_COMMENTS = enable_comments
             config.ENABLE_GET_SUB_COMMENTS = enable_sub_comments
             config.SAVE_DATA_OPTION = save_format
+            config.ENABLE_RPA_SEARCH = True  # 🔥 启用RPA搜索模式
 
             # 🔥 每次采集前重置store实例和视频信息缓存
             # 这样可以确保每次采集都创建新的文件（带新的时间戳）
@@ -151,8 +152,146 @@ class UnifiedBrowserCrawler:
 
         return existing_files
 
+    async def start_detail_crawling(self, video_url: str,
+                                    max_comments_per_video: int = 50,
+                                    enable_comments: bool = True,
+                                    enable_sub_comments: bool = True,
+                                    save_format: str = "csv",
+                                    output_dir: str = None):
+        """
+        开始链接采集 (Detail模式)
+
+        Args:
+            video_url: 视频链接或ID
+            max_comments_per_video: 每个视频最大评论数量
+            enable_comments: 是否采集一级评论
+            enable_sub_comments: 是否采集二级评论
+            save_format: 保存格式 (csv/json/sqlite/db)
+            output_dir: 输出目录
+        """
+        try:
+            print(f"\n{'='*60}")
+            print(f"🚀 开始链接采集")
+            print(f"{'='*60}")
+            print(f"🔗 视频链接: {video_url}")
+            print(f"💬 评论数: {max_comments_per_video} 条")
+            print(f"💾 保存格式: {save_format}")
+            print(f"{'='*60}\n")
+
+            # 🔥 验证链接格式
+            from media_platform.douyin.help import parse_video_info_from_url
+            try:
+                video_info = parse_video_info_from_url(video_url)
+                print(f"✅ 链接解析成功:")
+                print(f"   视频ID: {video_info.aweme_id}")
+                print(f"   链接类型: {video_info.url_type}")
+            except Exception as parse_error:
+                print(f"❌ 链接解析失败: {parse_error}")
+                print(f"   请检查链接格式是否正确")
+                print(f"   支持的格式:")
+                print(f"   1. 完整链接: https://www.douyin.com/video/7525538910311632128")
+                print(f"   2. 短链接: https://v.douyin.com/drIPtQ_WPWY/")
+                print(f"   3. 纯ID: 7525538910311632128")
+                raise
+
+            # 🔥 设置配置
+            config.DY_SPECIFIED_ID_LIST = [video_url]  # 单个链接
+            config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_per_video
+            config.CRAWLER_TYPE = "detail"
+            config.PLATFORM = "dy"
+            config.ENABLE_GET_COMMENTS = enable_comments
+            config.ENABLE_GET_SUB_COMMENTS = enable_sub_comments
+            config.SAVE_DATA_OPTION = save_format
+
+            # 🔥 重置store
+            from store.douyin import DouyinStoreFactory
+            import store.douyin as douyin_store
+            DouyinStoreFactory.reset_store()
+            douyin_store._video_info_cache.clear()
+
+            if output_dir:
+                DouyinStoreFactory.set_output_dir(output_dir)
+
+            # 设置爬虫
+            await self.setup_crawler("dy")
+
+            # 开始采集
+            if self.crawler:
+                await self.start_unified_douyin_crawling()
+
+            print(f"\n✅ 链接采集完成！\n")
+
+            # 返回生成的文件
+            return self._get_generated_files(save_format, output_dir, video_url)
+
+        except Exception as e:
+            print(f"\n❌ 链接采集失败: {str(e)}\n")
+            import traceback
+            traceback.print_exc()
+            raise
+
+    async def start_creator_crawling(self, creator_url: str, max_count: int = 20,
+                                     max_comments_per_video: int = 50,
+                                     enable_comments: bool = True,
+                                     enable_sub_comments: bool = True,
+                                     save_format: str = "csv",
+                                     output_dir: str = None):
+        """
+        开始创作者采集 (Creator模式)
+
+        Args:
+            creator_url: 创作者链接或ID
+            max_count: 最大采集视频数量
+            max_comments_per_video: 每个视频最大评论数量
+            enable_comments: 是否采集一级评论
+            enable_sub_comments: 是否采集二级评论
+            save_format: 保存格式 (csv/json/sqlite/db)
+            output_dir: 输出目录
+        """
+        try:
+            # 🔥 设置配置
+            config.DY_CREATOR_ID_LIST = [creator_url]  # 单个创作者
+            config.CRAWLER_MAX_NOTES_COUNT = max_count
+            config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_per_video
+            config.CRAWLER_TYPE = "creator"
+            config.PLATFORM = "dy"
+            config.ENABLE_GET_COMMENTS = enable_comments
+            config.ENABLE_GET_SUB_COMMENTS = enable_sub_comments
+            config.SAVE_DATA_OPTION = save_format
+
+            # 🔥 重置store
+            from store.douyin import DouyinStoreFactory
+            import store.douyin as douyin_store
+            DouyinStoreFactory.reset_store()
+            douyin_store._video_info_cache.clear()
+
+            if output_dir:
+                DouyinStoreFactory.set_output_dir(output_dir)
+
+            print(f"🚀 开始创作者采集")
+            print(f"👤 创作者: {creator_url}")
+            print(f"📊 视频数量: {max_count} 个")
+            print(f"💬 每个视频评论数: {max_comments_per_video} 条")
+            print(f"💾 保存格式: {save_format}")
+
+            # 设置爬虫
+            await self.setup_crawler("dy")
+
+            # 开始采集
+            if self.crawler:
+                await self.start_unified_douyin_crawling()
+
+            print(f"✅ 创作者采集完成！")
+
+            # 返回生成的文件
+            return self._get_generated_files(save_format, output_dir, creator_url)
+
+        except Exception as e:
+            print(f"❌ 创作者采集失败: {str(e)}")
+            raise
+
     async def start_unified_douyin_crawling(self):
-        """🔥 使用统一浏览器进行抖音采集"""
+        """🔥 使用统一浏览器进行抖音采集 - 支持三种模式"""
         try:
             # 🔥 关键修复：标记这是统一浏览器模式，不要关闭浏览器上下文
             self.crawler._is_unified_browser = True
@@ -179,14 +318,28 @@ class UnifiedBrowserCrawler:
             print("🍪 更新客户端cookies...")
             await self.crawler.dy_client.update_cookies(browser_context=self.shared_context)
 
-            # 开始搜索
+            # 🔥 根据模式执行不同的采集
             from var import crawler_type_var
             crawler_type_var.set(config.CRAWLER_TYPE)
 
-            print("🔍 开始搜索采集...")
-            await self.crawler.search()
+            if config.CRAWLER_TYPE == "search":
+                # 🔥 使用RPA搜索模式
+                if config.ENABLE_RPA_SEARCH:
+                    print("🔍 开始RPA搜索采集...")
+                    await self._rpa_search_and_collect()
+                else:
+                    print("🔍 开始API搜索采集...")
+                    await self.crawler.search()
+            elif config.CRAWLER_TYPE == "detail":
+                print("🔗 开始链接采集...")
+                await self.crawler.get_specified_awemes()
+            elif config.CRAWLER_TYPE == "creator":
+                print("👤 开始创作者采集...")
+                await self.crawler.get_creators_and_videos()
+            else:
+                raise ValueError(f"未知的采集模式: {config.CRAWLER_TYPE}")
 
-            print("✅ 搜索采集完成")
+            print(f"✅ {config.CRAWLER_TYPE}采集完成")
 
         except Exception as e:
             print(f"❌ 统一浏览器抖音采集失败: {e}")
@@ -194,16 +347,60 @@ class UnifiedBrowserCrawler:
             traceback.print_exc()
             raise
 
-async def run_unified_crawler(keywords: str, shared_context=None, shared_page=None,
+    async def _rpa_search_and_collect(self):
+        """🔥 RPA搜索并收集视频链接,然后抓取评论"""
+        import asyncio
+        from rpa_search_crawler import RPASearchCrawler
+
+        # 获取关键词
+        keyword = config.KEYWORDS.split(',')[0].strip()
+        max_videos = config.CRAWLER_MAX_NOTES_COUNT
+
+        print(f"🎯 RPA搜索参数:")
+        print(f"   关键词: {keyword}")
+        print(f"   视频数量: {max_videos}")
+
+        # 创建RPA搜索爬虫(使用共享浏览器)
+        rpa_crawler = RPASearchCrawler(keyword=keyword, max_videos=max_videos)
+
+        # 🔥 关键:使用共享浏览器上下文
+        rpa_crawler.context = self.shared_context
+        rpa_crawler.page = self.shared_page
+
+        # 执行RPA搜索(跳过浏览器启动和登录)
+        print("🔍 开始RPA搜索...")
+        await rpa_crawler._goto_search_page()
+        await rpa_crawler._search_keyword()
+        await rpa_crawler._scroll_and_collect_links()
+
+        video_links = rpa_crawler.video_links
+        print(f"✅ RPA搜索完成,收集到 {len(video_links)} 个视频链接")
+
+        # 🔥 将链接设置到配置,然后调用detail模式抓取
+        if video_links:
+            config.DY_SPECIFIED_ID_LIST = video_links
+            config.CRAWLER_TYPE = "detail"  # 切换到detail模式
+
+            print("🔗 开始抓取视频评论...")
+            await self.crawler.get_specified_awemes()
+        else:
+            print("⚠️ 未收集到视频链接,跳过评论抓取")
+
+async def run_unified_crawler(keywords: str = None, video_url: str = None, creator_url: str = None,
+                             crawler_mode: str = "search",
+                             shared_context=None, shared_page=None,
                              max_count: int = 20, max_comments_per_video: int = 50,
                              enable_comments: bool = True, enable_sub_comments: bool = True,
                              save_format: str = "csv", output_dir: str = None,
                              progress_callback=None):
     """
-    运行统一浏览器采集器
+    运行统一浏览器采集器 - 支持三种模式
 
     Args:
-        keywords: 搜索关键词
+        keywords: 搜索关键词 (search模式)
+        video_url: 视频链接 (detail模式)
+        creator_url: 创作者链接 (creator模式)
+        crawler_mode: 采集模式 (search/detail/creator)
         shared_context: 共享浏览器上下文
         shared_page: 共享页面
         max_count: 最大采集数量（视频数量）
@@ -218,15 +415,38 @@ async def run_unified_crawler(keywords: str, shared_context=None, shared_page=No
         dict: 生成的文件路径字典 {"contents": "path/to/contents.csv", "comments": "path/to/comments.csv"}
     """
     crawler = UnifiedBrowserCrawler(shared_context, shared_page, progress_callback)
-    return await crawler.start_search_crawling(
-        keywords=keywords,
-        max_count=max_count,
-        max_comments_per_video=max_comments_per_video,
-        enable_comments=enable_comments,
-        enable_sub_comments=enable_sub_comments,
-        save_format=save_format,
-        output_dir=output_dir
-    )
+
+    if crawler_mode == "search":
+        return await crawler.start_search_crawling(
+            keywords=keywords,
+            max_count=max_count,
+            max_comments_per_video=max_comments_per_video,
+            enable_comments=enable_comments,
+            enable_sub_comments=enable_sub_comments,
+            save_format=save_format,
+            output_dir=output_dir
+        )
+    elif crawler_mode == "detail":
+        return await crawler.start_detail_crawling(
+            video_url=video_url,
+            max_comments_per_video=max_comments_per_video,
+            enable_comments=enable_comments,
+            enable_sub_comments=enable_sub_comments,
+            save_format=save_format,
+            output_dir=output_dir
+        )
+    elif crawler_mode == "creator":
+        return await crawler.start_creator_crawling(
+            creator_url=creator_url,
+            max_count=max_count,
+            max_comments_per_video=max_comments_per_video,
+            enable_comments=enable_comments,
+            enable_sub_comments=enable_sub_comments,
+            save_format=save_format,
+            output_dir=output_dir
+        )
+    else:
+        raise ValueError(f"未知的采集模式: {crawler_mode}")
 
 def main():
     """主函数 - 用于测试"""

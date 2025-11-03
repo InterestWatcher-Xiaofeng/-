@@ -47,10 +47,12 @@ class DouyinCsvStoreImplement(AbstractStore):
         Returns:
 
         """
-        await self.file_writer.write_to_csv(
-            item=content_item,
-            item_type="contents"
-        )
+        # 🔥 禁用内容CSV保存 - 用户只需要评论CSV
+        pass
+        # await self.file_writer.write_to_csv(
+        #     item=content_item,
+        #     item_type="contents"
+        # )
 
     async def store_comment(self, comment_item: Dict):
         """

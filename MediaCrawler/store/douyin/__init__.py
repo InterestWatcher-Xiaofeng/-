@@ -286,7 +286,16 @@ async def save_creator(user_id: str, creator: Dict):
         "last_modify_ts": utils.get_current_timestamp(),
     }
     utils.logger.info(f"[store.douyin.save_creator] creator:{local_db_item}")
-    await DouyinStoreFactory.create_store().store_creator(local_db_item)
+
+    # 🔥 设置创作者信息到file_writer(用于文件命名)
+    store = DouyinStoreFactory.create_store()
+    if hasattr(store, 'file_writer') and hasattr(store.file_writer, 'set_creator_info'):
+        nickname = user_info.get("nickname", "未命名")
+        video_count = user_info.get("aweme_count", 0)
+        store.file_writer.set_creator_info(nickname, video_count)
+        utils.logger.info(f"[store.douyin.save_creator] Set creator info: {nickname}, {video_count} videos")
+
+    await store.store_creator(local_db_item)
 
 
 async def update_dy_aweme_image(aweme_id, pic_content, extension_file_name):

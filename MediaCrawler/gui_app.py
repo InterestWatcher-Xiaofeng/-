@@ -15,9 +15,26 @@ from typing import Dict, Any, Optional
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import customtkinter as ctk
+import logging
+from datetime import datetime
 
 # 添加项目根目录到Python路径
 sys.path.append(str(Path(__file__).parent))
+
+# 🔥 配置日志记录
+log_dir = Path(__file__).parent / "logs"
+log_dir.mkdir(exist_ok=True)
+log_file = log_dir / f"gui_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # 导入MediaCrawler核心模块
 import config
@@ -44,6 +61,9 @@ class MediaCrawlerGUI:
         self.current_task = None
         self.task_thread = None
         self.stop_flag = False
+
+        # 🔥 预先初始化save_format_var,确保默认值为CSV
+        self.save_format_var = tk.StringVar(value="csv")
 
         # 🔥 统一浏览器管理 - 登录和采集使用同一个浏览器
         self.shared_browser = None
@@ -229,15 +249,16 @@ class MediaCrawlerGUI:
         
         detail_input_frame = ctk.CTkFrame(detail_frame)
         detail_input_frame.pack(fill="x", padx=20, pady=5)
-        
-        ctk.CTkLabel(detail_input_frame, text="链接/ID:").pack(side="left", padx=(0, 5))
-        self.detail_entry = ctk.CTkEntry(
+
+        ctk.CTkLabel(detail_input_frame, text="链接/ID (每行一个):").pack(anchor="w", padx=(0, 5))
+        # 🔥 改为多行文本框,支持批量输入
+        self.detail_textbox = ctk.CTkTextbox(
             detail_input_frame,
-            placeholder_text="请输入内容链接或ID",
+            height=80,
             width=400,
             state="disabled"
         )
-        self.detail_entry.pack(side="left", fill="x", expand=True)
+        self.detail_textbox.pack(fill="x", expand=True)
         
         # 创作者主页
         creator_frame = ctk.CTkFrame(mode_frame)
@@ -254,15 +275,16 @@ class MediaCrawlerGUI:
         
         creator_input_frame = ctk.CTkFrame(creator_frame)
         creator_input_frame.pack(fill="x", padx=20, pady=5)
-        
-        ctk.CTkLabel(creator_input_frame, text="创作者:").pack(side="left", padx=(0, 5))
-        self.creator_entry = ctk.CTkEntry(
+
+        ctk.CTkLabel(creator_input_frame, text="创作者 (每行一个):").pack(anchor="w", padx=(0, 5))
+        # 🔥 改为多行文本框,支持批量输入
+        self.creator_textbox = ctk.CTkTextbox(
             creator_input_frame,
-            placeholder_text="请输入创作者链接或ID",
+            height=80,
             width=400,
             state="disabled"
         )
-        self.creator_entry.pack(side="left", fill="x", expand=True)
+        self.creator_textbox.pack(fill="x", expand=True)
     
     def setup_settings_tab(self):
         """设置采集设置标签页"""
@@ -499,24 +521,31 @@ class MediaCrawlerGUI:
             text="输出格式",
             font=ctk.CTkFont(size=16, weight="bold")
         ).pack(pady=(10, 5))
-        
-        self.save_format_var = tk.StringVar(value="json")
-        
+
+        # 🔥 save_format_var已在__init__中初始化为csv
         format_options = [
             ("csv", "📊 CSV文件 (Excel兼容)"),
             ("json", "🗃️ JSON文件 (支持词云图)"),
             ("sqlite", "💾 SQLite数据库 (推荐)"),
             ("db", "🏢 MySQL数据库")
         ]
-        
+
+        # 🔥 创建RadioButton并保存引用
+        self.format_radios = []
         for value, text in format_options:
-            ctk.CTkRadioButton(
+            radio = ctk.CTkRadioButton(
                 format_frame,
                 text=text,
                 variable=self.save_format_var,
                 value=value,
                 font=ctk.CTkFont(size=14)
-            ).pack(anchor="w", padx=20, pady=5)
+            )
+            radio.pack(anchor="w", padx=20, pady=5)
+            self.format_radios.append(radio)
+
+        # 🔥 强制选中第一个(CSV)
+        if self.format_radios:
+            self.format_radios[0].select()
         
         # 保存设置
         save_frame = ctk.CTkFrame(tab)
@@ -708,16 +737,16 @@ class MediaCrawlerGUI:
         # 🔥 更新：textbox使用不同的状态控制方法
         if mode == "search":
             self.keywords_textbox.configure(state="normal")
-            self.detail_entry.configure(state="disabled")
-            self.creator_entry.configure(state="disabled")
+            self.detail_textbox.configure(state="disabled")
+            self.creator_textbox.configure(state="disabled")
         elif mode == "detail":
             self.keywords_textbox.configure(state="disabled")
-            self.detail_entry.configure(state="normal")
-            self.creator_entry.configure(state="disabled")
+            self.detail_textbox.configure(state="normal")
+            self.creator_textbox.configure(state="disabled")
         elif mode == "creator":
             self.keywords_textbox.configure(state="disabled")
-            self.detail_entry.configure(state="disabled")
-            self.creator_entry.configure(state="normal")
+            self.detail_textbox.configure(state="disabled")
+            self.creator_textbox.configure(state="normal")
     
     def browse_output_dir(self):
         """浏览输出目录"""
@@ -1305,12 +1334,12 @@ class MediaCrawlerGUI:
                 messagebox.showerror("配置错误", "请输入搜索关键词")
                 return False
         elif mode == "detail":
-            detail = self.detail_entry.get().strip()
+            detail = self.detail_textbox.get("1.0", "end-1c").strip()
             if not detail:
                 messagebox.showerror("配置错误", "请输入内容链接或ID")
                 return False
         elif mode == "creator":
-            creator = self.creator_entry.get().strip()
+            creator = self.creator_textbox.get("1.0", "end-1c").strip()
             if not creator:
                 messagebox.showerror("配置错误", "请输入创作者链接或ID")
                 return False
@@ -1370,68 +1399,161 @@ class MediaCrawlerGUI:
             raise
 
     def run_douyin_unified_crawler(self, max_count: int, content_type: str):
-        """🔥 抖音统一浏览器采集 - 支持批量关键词"""
+        """🔥 抖音统一浏览器采集 - 支持批量关键词/链接/创作者"""
         try:
-            # 检查统一浏览器状态
+            logger.info("="*60)
+            logger.info("开始抖音采集任务")
+            logger.info("="*60)
+
+            # 🔥 自动检测登录状态并加载
             if not self.browser_ready or not self.shared_context:
-                raise Exception("统一浏览器未就绪，请先完成登录")
+                logger.info("检测到浏览器未就绪,正在检查登录状态...")
+                print("🔍 检测到浏览器未就绪,正在检查登录状态...")
+                login_status = self.check_saved_login_status("dy")
 
-            # 🔥 获取批量关键词（支持多行）
-            keywords_text = self.keywords_textbox.get("1.0", "end-1c").strip()
-            if not keywords_text:
-                raise Exception("请输入搜索关键词")
+                if login_status.get('has_login'):
+                    logger.info(f"检测到有效登录信息 (登录时间: {login_status.get('login_date')})")
+                    print(f"✅ 检测到有效登录信息 (登录时间: {login_status.get('login_date')})")
+                    print("🚀 正在自动加载登录信息并启动浏览器...")
 
-            # 🔥 解析批量关键词：每行一组
-            keywords_list = [line.strip() for line in keywords_text.split('\n') if line.strip()]
+                    # 自动启动统一浏览器并加载登录信息
+                    self.start_unified_browser_login("dy")
 
-            if not keywords_list:
-                raise Exception("请输入有效的搜索关键词")
+                    # 等待浏览器就绪
+                    import time
+                    max_wait = 10  # 最多等待10秒
+                    waited = 0
+                    while (not self.browser_ready or not self.shared_context) and waited < max_wait:
+                        time.sleep(0.5)
+                        waited += 0.5
 
-            print(f"🔥 开始抖音批量采集")
-            print(f"📋 关键词组数: {len(keywords_list)}")
+                    if not self.browser_ready or not self.shared_context:
+                        logger.error("浏览器启动超时")
+                        raise Exception("浏览器启动超时,请手动登录")
+
+                    logger.info("浏览器已就绪,登录信息已加载")
+                    print("✅ 浏览器已就绪,登录信息已加载")
+                else:
+                    logger.error(f"未找到有效登录信息: {login_status.get('reason')}")
+                    raise Exception(f"未找到有效登录信息: {login_status.get('reason')}\n请先在'登录管理'中完成抖音登录")
+
+            # 🔥 获取采集模式
+            crawler_mode = self.crawler_type_var.get()
+
+            # 🔥 根据模式获取输入内容
+            if crawler_mode == "search":
+                # 关键词搜索模式
+                input_text = self.keywords_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入搜索关键词")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "关键词"
+
+            elif crawler_mode == "detail":
+                # 链接搜索模式
+                input_text = self.detail_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入视频链接或ID")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "链接"
+
+            elif crawler_mode == "creator":
+                # 创作者搜索模式
+                input_text = self.creator_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入创作者链接或ID")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "创作者"
+            else:
+                raise Exception(f"未知的采集模式: {crawler_mode}")
+
+            if not input_list:
+                raise Exception(f"请输入有效的{mode_name}")
+
+            print(f"🔥 开始抖音批量采集 - {mode_name}模式")
+            print(f"📋 {mode_name}数量: {len(input_list)}")
             print(f"📊 每组最大数量: {max_count}")
 
-            # 🔥 批量执行每组关键词
-            total_groups = len(keywords_list)
-            for index, keywords in enumerate(keywords_list, 1):
-                if self.stop_flag:
-                    print(f"⏹️ 用户停止采集")
-                    break
+            # 🔥 批量执行 - 根据模式决定是批量还是逐个
+            total_groups = len(input_list)
 
+            if crawler_mode == "detail":
+                # 🔥 多链接模式：一次性处理所有链接,输出到同一个文件
                 print(f"\n{'='*60}")
-                print(f"🔍 [{index}/{total_groups}] 正在采集关键词: {keywords}")
+                print(f"🔍 批量采集 {total_groups} 个视频链接")
                 print(f"{'='*60}\n")
 
-                # 更新状态
-                self.root.after(0, lambda i=index, t=total_groups, k=keywords:
-                    self.update_status(f"[{i}/{t}] 正在采集: {k}"))
+                self.root.after(0, lambda: self.update_status(f"正在批量采集 {total_groups} 个视频..."))
 
-                # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
+                # 一次性调用,传入所有链接
                 if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
                     future = asyncio.run_coroutine_threadsafe(
-                        self.async_douyin_crawler(keywords, max_count, content_type, index, total_groups),
+                        self.async_douyin_crawler_batch(input_list, max_count, content_type, crawler_mode),
                         self.browser_loop
                     )
-                    # 等待完成（最多10分钟）
-                    future.result(timeout=600)
+                    # 🔥 移除超时限制,等待任务完成
+                    future.result()
                 else:
-                    # 如果没有事件循环，创建新的
                     print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
-                    asyncio.run(self.async_douyin_crawler(keywords, max_count, content_type, index, total_groups))
+                    asyncio.run(self.async_douyin_crawler_batch(input_list, max_count, content_type, crawler_mode))
 
-                print(f"✅ [{index}/{total_groups}] 关键词 '{keywords}' 采集完成\n")
+                print(f"✅ 批量采集完成！共 {total_groups} 个视频\n")
+                logger.info(f"批量采集完成！共 {total_groups} 个视频")
 
-            print(f"\n🎉 批量采集全部完成！共完成 {len(keywords_list)} 组关键词")
+            else:
+                # 🔥 关键词/创作者模式：逐个处理
+                for index, input_item in enumerate(input_list, 1):
+                    if self.stop_flag:
+                        print(f"⏹️ 用户停止采集")
+                        break
+
+                    print(f"\n{'='*60}")
+                    print(f"🔍 [{index}/{total_groups}] 正在采集{mode_name}: {input_item}")
+                    print(f"{'='*60}\n")
+
+                    # 更新状态
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item:
+                        self.update_status(f"[{i}/{t}] 正在采集: {item}"))
+
+                    # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
+                    if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.async_douyin_crawler(input_item, max_count, content_type, index, total_groups, crawler_mode),
+                            self.browser_loop
+                        )
+                        # 🔥 移除超时限制,等待任务完成
+                        future.result()
+                    else:
+                        # 如果没有事件循环，创建新的
+                        print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
+                        asyncio.run(self.async_douyin_crawler(input_item, max_count, content_type, index, total_groups, crawler_mode))
+
+                    print(f"✅ [{index}/{total_groups}] {mode_name} '{input_item}' 采集完成\n")
+                    logger.info(f"[{index}/{total_groups}] {mode_name} '{input_item}' 采集完成")
+
+            print(f"\n🎉 批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
+            logger.info(f"批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
+
+            # 🔥 采集完成后关闭浏览器,释放资源
+            print("\n🧹 正在关闭浏览器,释放资源...")
+            logger.info("采集完成,关闭浏览器")
+            self.cleanup_browser()
+            print("✅ 浏览器已关闭\n")
 
         except Exception as e:
+            logger.error(f"抖音统一浏览器采集失败: {e}", exc_info=True)
             print(f"❌ 抖音统一浏览器采集失败: {e}")
             import traceback
             traceback.print_exc()
+
+            # 🔥 出错也要关闭浏览器
+            print("\n🧹 正在关闭浏览器...")
+            self.cleanup_browser()
             raise
 
-    async def async_douyin_crawler(self, keywords: str, max_count: int, content_type: str,
-                                   current_index: int = 1, total_groups: int = 1):
-        """异步抖音采集任务 - 支持批量关键词"""
+    async def async_douyin_crawler(self, input_item: str, max_count: int, content_type: str,
+                                   current_index: int = 1, total_groups: int = 1, crawler_mode: str = "search"):
+        """异步抖音采集任务 - 支持批量关键词/链接/创作者"""
         try:
             from 统一浏览器采集器 import run_unified_crawler
 
@@ -1443,11 +1565,13 @@ class MediaCrawlerGUI:
             output_dir = self.output_dir_var.get()
 
             # 更新状态
-            status_msg = f"🔥 [{current_index}/{total_groups}] 采集: {keywords}..."
+            status_msg = f"🔥 [{current_index}/{total_groups}] 采集: {input_item}..."
             self.root.after(0, lambda: self.update_status(status_msg))
 
+            logger.info(f"GUI配置参数: 模式={crawler_mode}, 输入={input_item}, 视频数={max_count}, 评论数={max_comments_per_video}, 格式={save_format}")
             print(f"📋 GUI配置参数:")
-            print(f"   关键词: {keywords}")
+            print(f"   采集模式: {crawler_mode}")
+            print(f"   输入内容: {input_item}")
             print(f"   视频数量: {max_count} 个")
             print(f"   每个视频评论数: {max_comments_per_video} 条")
             print(f"   一级评论: {enable_comments}")
@@ -1470,7 +1594,10 @@ class MediaCrawlerGUI:
 
             # 🔥 使用统一浏览器进行采集，传递完整配置和进度回调
             generated_files = await run_unified_crawler(
-                keywords=keywords,
+                keywords=input_item if crawler_mode == "search" else None,
+                video_url=input_item if crawler_mode == "detail" else None,
+                creator_url=input_item if crawler_mode == "creator" else None,
+                crawler_mode=crawler_mode,
                 shared_context=self.shared_context,
                 shared_page=self.shared_page,
                 max_count=max_count,
@@ -1484,7 +1611,7 @@ class MediaCrawlerGUI:
 
             # 采集完成
             save_path = output_dir if output_dir else f"data/douyin/{save_format}/"
-            complete_msg = f"✅ [{current_index}/{total_groups}] {keywords} 采集完成"
+            complete_msg = f"✅ [{current_index}/{total_groups}] {input_item} 采集完成"
             self.root.after(0, lambda: self.update_status(complete_msg))
 
             # 🔥 构建文件信息
@@ -1533,6 +1660,76 @@ class MediaCrawlerGUI:
 
         except Exception as e:
             error_msg = f"统一浏览器采集失败: {str(e)}"
+            self.root.after(0, lambda: self.update_status("❌ 采集失败"))
+            raise Exception(error_msg)
+
+    async def async_douyin_crawler_batch(self, video_urls: list, max_count: int, content_type: str, crawler_mode: str = "detail"):
+        """
+        异步抖音批量链接采集 - 所有链接输出到同一个文件
+
+        Args:
+            video_urls: 视频链接列表
+            max_count: 最大采集数量(对detail模式无效)
+            content_type: 内容类型
+            crawler_mode: 采集模式(应该是"detail")
+        """
+        try:
+            from 统一浏览器采集器 import UnifiedBrowserCrawler
+
+            # 🔥 获取GUI配置参数
+            max_comments_per_video = int(self.max_comments_var.get())
+            enable_comments = self.enable_comments_var.get()
+            enable_sub_comments = self.enable_sub_comments_var.get()
+            save_format = self.save_format_var.get()
+            output_dir = self.output_dir_var.get()
+
+            logger.info(f"批量链接采集: {len(video_urls)} 个视频")
+            print(f"📋 批量链接采集配置:")
+            print(f"   视频数量: {len(video_urls)} 个")
+            print(f"   每个视频评论数: {max_comments_per_video} 条")
+            print(f"   一级评论: {enable_comments}")
+            print(f"   二级评论: {enable_sub_comments}")
+            print(f"   保存格式: {save_format}")
+            print(f"   输出目录: {output_dir}")
+
+            # 🔥 创建统一浏览器采集器
+            crawler = UnifiedBrowserCrawler(
+                shared_context=self.shared_context,
+                shared_page=self.shared_page
+            )
+
+            # 🔥 一次性设置所有链接
+            import config
+            config.DY_SPECIFIED_ID_LIST = video_urls
+            config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_per_video
+            config.CRAWLER_TYPE = "detail"
+            config.PLATFORM = "dy"
+            config.ENABLE_GET_COMMENTS = enable_comments
+            config.ENABLE_GET_SUB_COMMENTS = enable_sub_comments
+            config.SAVE_DATA_OPTION = save_format
+
+            # 🔥 重置store
+            from store.douyin import DouyinStoreFactory
+            import store.douyin as douyin_store
+            DouyinStoreFactory.reset_store()
+            douyin_store._video_info_cache.clear()
+
+            if output_dir:
+                DouyinStoreFactory.set_output_dir(output_dir)
+
+            # 设置爬虫
+            await crawler.setup_crawler("dy")
+
+            # 开始采集
+            if crawler.crawler:
+                await crawler.start_unified_douyin_crawling()
+
+            print(f"✅ 批量链接采集完成！")
+            logger.info(f"批量链接采集完成！")
+
+        except Exception as e:
+            error_msg = f"批量链接采集失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
             self.root.after(0, lambda: self.update_status("❌ 采集失败"))
             raise Exception(error_msg)
 
@@ -2234,9 +2431,22 @@ MediaCrawler 使用帮助
 def main():
     """主函数"""
     try:
+        # 🔥 打印日志文件位置
+        print("="*60)
+        print("🚀 MediaCrawler GUI 启动")
+        print("="*60)
+        print(f"📝 日志文件: {log_file}")
+        print(f"📁 日志目录: {log_dir}")
+        print("="*60)
+        logger.info("="*60)
+        logger.info("MediaCrawler GUI 启动")
+        logger.info(f"日志文件: {log_file}")
+        logger.info("="*60)
+
         app = MediaCrawlerGUI()
         app.run()
     except Exception as e:
+        logger.error(f"应用启动失败: {e}", exc_info=True)
         messagebox.showerror("启动错误", f"应用启动失败: {str(e)}")
 
 if __name__ == "__main__":

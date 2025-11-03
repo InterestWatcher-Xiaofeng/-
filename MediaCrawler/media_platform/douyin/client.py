@@ -251,7 +251,7 @@ class DouYinClient(AbstractApiClient):
             await asyncio.sleep(crawl_interval)
             if not is_fetch_sub_comments:
                 continue
-            # 获取二级评论
+            # 🔥 获取二级评论 - 每条一级评论最多100条二级评论
             for comment in comments:
                 reply_comment_total = comment.get("reply_comment_total")
 
@@ -259,8 +259,10 @@ class DouYinClient(AbstractApiClient):
                     comment_id = comment.get("cid")
                     sub_comments_has_more = 1
                     sub_comments_cursor = 0
+                    sub_comments_count = 0  # 🔥 记录当前一级评论的二级评论数量
+                    max_sub_comments_per_comment = 100  # 🔥 每条一级评论最多100条二级评论
 
-                    while sub_comments_has_more:
+                    while sub_comments_has_more and sub_comments_count < max_sub_comments_per_comment:
                         sub_comments_res = await self.get_sub_comments(aweme_id, comment_id, sub_comments_cursor)
                         sub_comments_has_more = sub_comments_res.get("has_more", 0)
                         sub_comments_cursor = sub_comments_res.get("cursor", 0)
@@ -268,6 +270,12 @@ class DouYinClient(AbstractApiClient):
 
                         if not sub_comments:
                             continue
+
+                        # 🔥 限制二级评论数量
+                        if sub_comments_count + len(sub_comments) > max_sub_comments_per_comment:
+                            sub_comments = sub_comments[:max_sub_comments_per_comment - sub_comments_count]
+
+                        sub_comments_count += len(sub_comments)
                         result.extend(sub_comments)
                         if callback:  # 如果有回调函数，就执行回调函数
                             await callback(aweme_id, sub_comments)
