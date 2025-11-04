@@ -29,12 +29,40 @@ class XhsStoreFactory:
         "sqlite": XhsSqliteStoreImplement,
     }
 
+    # 🔥 全局输出目录设置
+    _output_dir = None
+
+    # 🔥 当前采集的store实例（确保同一次采集使用同一个文件）
+    _current_store = None
+
+    @staticmethod
+    def set_output_dir(output_dir: str):
+        """设置全局输出目录"""
+        XhsStoreFactory._output_dir = output_dir
+
+    @staticmethod
+    def reset_store():
+        """重置store实例，开始新的采集"""
+        XhsStoreFactory._current_store = None
+        print(f"🔄 已重置Store实例，准备创建新文件")
+
     @staticmethod
     def create_store() -> AbstractStore:
+        # 🔥 如果已有当前store实例，直接返回（确保同一次采集使用同一个文件）
+        if XhsStoreFactory._current_store is not None:
+            return XhsStoreFactory._current_store
+
         store_class = XhsStoreFactory.STORES.get(config.SAVE_DATA_OPTION)
         if not store_class:
             raise ValueError("[XhsStoreFactory.create_store] Invalid save option only supported csv or db or json or sqlite ...")
-        return store_class()
+
+        # 🔥 如果是CSV或JSON存储，传递output_dir参数
+        if config.SAVE_DATA_OPTION in ["csv", "json"]:
+            XhsStoreFactory._current_store = store_class(output_dir=XhsStoreFactory._output_dir)
+        else:
+            XhsStoreFactory._current_store = store_class()
+
+        return XhsStoreFactory._current_store
 
 
 def get_video_url_arr(note_item: Dict) -> List:

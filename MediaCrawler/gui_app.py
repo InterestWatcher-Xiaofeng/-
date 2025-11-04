@@ -1177,27 +1177,40 @@ class MediaCrawlerGUI:
                             f"3. 完成登录后点击'💾保存'按钮"
                         ))
 
-            # 🔥 等待用户登录（给60秒时间）
-            print(f"⏰ 等待用户完成登录...")
-            self.root.after(0, lambda pn=platform_name: self.update_status(f"请在浏览器中完成{pn}登录..."))
+            # 🔥 检测是否已经登录
+            print(f"🔍 检测{platform_name}登录状态...")
+            is_logged_in = await self._check_platform_login_status(platform, self.shared_page)
 
-            # 显示提示信息
-            self.root.after(0, lambda pn=platform_name: messagebox.showinfo(
-                "🔥 请完成登录",
-                f"浏览器已打开{pn}页面\n\n"
-                f"请在浏览器中完成登录操作：\n"
-                f"1. 点击登录按钮\n"
-                f"2. 使用手机扫码或输入账号密码\n"
-                f"3. 确认登录成功\n\n"
-                f"⚠️ 请不要关闭浏览器窗口！\n\n"
-                f"登录完成后，程序将自动保存登录信息"
-            ))
+            if is_logged_in:
+                print(f"✅ 检测到{platform_name}已登录,跳过登录流程")
+                self.root.after(0, lambda pn=platform_name: self.update_status(f"{pn}已登录"))
 
-            # 等待60秒让用户完成登录
-            await asyncio.sleep(60)
+                # 自动保存登录信息
+                print(f"💾 自动保存{platform}登录信息...")
+                await self.save_login_info(platform)
 
-            # 🔥 自动保存登录信息
-            print(f"💾 自动保存{platform}登录信息...")
+            else:
+                # 🔥 等待用户登录（给60秒时间）
+                print(f"⏰ 等待用户完成登录...")
+                self.root.after(0, lambda pn=platform_name: self.update_status(f"请在浏览器中完成{pn}登录..."))
+
+                # 显示提示信息
+                self.root.after(0, lambda pn=platform_name: messagebox.showinfo(
+                    "🔥 请完成登录",
+                    f"浏览器已打开{pn}页面\n\n"
+                    f"请在浏览器中完成登录操作：\n"
+                    f"1. 点击登录按钮\n"
+                    f"2. 使用手机扫码或输入账号密码\n"
+                    f"3. 确认登录成功\n\n"
+                    f"⚠️ 请不要关闭浏览器窗口！\n\n"
+                    f"登录完成后，程序将自动保存登录信息"
+                ))
+
+                # 等待60秒让用户完成登录
+                await asyncio.sleep(60)
+
+                # 🔥 自动保存登录信息
+                print(f"💾 自动保存{platform}登录信息...")
             save_success = await self.save_login_info(platform)
 
             if save_success:
@@ -1274,7 +1287,8 @@ class MediaCrawlerGUI:
                 return
 
             # 🔥 检查统一浏览器状态
-            platform = self.config_vars.get('platform', 'dy')
+            # 🔥 修复：直接从platform_var获取平台,而不是从config_vars
+            platform = self.platform_var.get()
             platform_name = self.platforms.get(platform, {}).get('name', platform)
 
             # 🔥 严格检查：平台必须匹配且浏览器必须就绪
@@ -1386,9 +1400,14 @@ class MediaCrawlerGUI:
             self.run_unified_crawler(platform, max_count, content_type)
 
         except Exception as e:
-            error_msg = f"采集过程中出错: {str(e)}"
-            self.root.after(0, lambda: messagebox.showerror("采集错误", error_msg))
-            self.root.after(0, lambda: self.update_status("采集失败"))
+            # 🔥 如果是用户主动停止,不显示错误
+            if self.stop_flag:
+                print("⏹️ 用户已停止采集")
+                self.root.after(0, lambda: self.update_status("采集已停止"))
+            else:
+                error_msg = f"采集过程中出错: {str(e)}"
+                self.root.after(0, lambda: messagebox.showerror("采集错误", error_msg))
+                self.root.after(0, lambda: self.update_status("采集失败"))
         finally:
             self.root.after(0, self.reset_ui_state)
 
@@ -1398,6 +1417,9 @@ class MediaCrawlerGUI:
             if platform == "dy":
                 # 使用统一浏览器进行抖音采集
                 self.run_douyin_unified_crawler(max_count, content_type)
+            elif platform == "xhs":
+                # 使用统一浏览器进行小红书采集
+                self.run_xiaohongshu_unified_crawler(max_count, content_type)
             else:
                 # 其他平台暂时使用原有方式
                 self.run_real_crawler(platform, max_count, content_type)
@@ -1559,6 +1581,156 @@ class MediaCrawlerGUI:
             self.cleanup_browser()
             raise
 
+    def run_xiaohongshu_unified_crawler(self, max_count: int, content_type: str):
+        """🔥 小红书统一浏览器采集 - 支持批量关键词/链接/创作者"""
+        try:
+            logger.info("="*60)
+            logger.info("开始小红书采集任务")
+            logger.info("="*60)
+
+            # 🔥 自动检测登录状态并加载
+            if not self.browser_ready or not self.shared_context:
+                logger.info("检测到浏览器未就绪,正在检查登录状态...")
+                print("🔍 检测到浏览器未就绪,正在检查登录状态...")
+                login_status = self.check_saved_login_status("xhs")
+
+                if login_status.get('has_login'):
+                    logger.info(f"检测到有效登录信息 (登录时间: {login_status.get('login_date')})")
+                    print(f"✅ 检测到有效登录信息 (登录时间: {login_status.get('login_date')})")
+                    print("🚀 正在自动加载登录信息并启动浏览器...")
+
+                    # 自动启动统一浏览器并加载登录信息
+                    self.start_unified_browser_login("xhs")
+
+                    # 等待浏览器就绪
+                    import time
+                    max_wait = 10  # 最多等待10秒
+                    waited = 0
+                    while (not self.browser_ready or not self.shared_context) and waited < max_wait:
+                        time.sleep(0.5)
+                        waited += 0.5
+
+                    if not self.browser_ready or not self.shared_context:
+                        logger.error("浏览器启动超时")
+                        raise Exception("浏览器启动超时,请手动登录")
+
+                    logger.info("浏览器已就绪,登录信息已加载")
+                    print("✅ 浏览器已就绪,登录信息已加载")
+                else:
+                    logger.error(f"未找到有效登录信息: {login_status.get('reason')}")
+                    raise Exception(f"未找到有效登录信息: {login_status.get('reason')}\n请先在'登录管理'中完成小红书登录")
+
+            # 🔥 获取采集模式
+            crawler_mode = self.crawler_type_var.get()
+
+            # 🔥 根据模式获取输入内容
+            if crawler_mode == "search":
+                # 关键词搜索模式
+                input_text = self.keywords_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入搜索关键词")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "关键词"
+
+            elif crawler_mode == "detail":
+                # 链接搜索模式
+                input_text = self.detail_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入笔记链接或ID")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "链接"
+
+            elif crawler_mode == "creator":
+                # 创作者搜索模式
+                input_text = self.creator_textbox.get("1.0", "end-1c").strip()
+                if not input_text:
+                    raise Exception("请输入创作者链接或ID")
+                input_list = [line.strip() for line in input_text.split('\n') if line.strip()]
+                mode_name = "创作者"
+            else:
+                raise Exception(f"未知的采集模式: {crawler_mode}")
+
+            if not input_list:
+                raise Exception(f"请输入有效的{mode_name}")
+
+            print(f"🔥 开始小红书批量采集 - {mode_name}模式")
+            print(f"📋 {mode_name}数量: {len(input_list)}")
+            print(f"📊 每组最大数量: {max_count}")
+
+            # 🔥 批量执行 - 根据模式决定是批量还是逐个
+            total_groups = len(input_list)
+
+            if crawler_mode == "detail":
+                # 🔥 多链接模式：一次性处理所有链接,输出到同一个文件
+                print(f"\n{'='*60}")
+                print(f"🔍 批量采集 {total_groups} 个笔记链接")
+                print(f"{'='*60}\n")
+
+                self.root.after(0, lambda: self.update_status(f"正在批量采集 {total_groups} 个笔记..."))
+
+                # 一次性调用,传入所有链接
+                if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.async_xiaohongshu_crawler_batch(input_list, max_count, content_type, crawler_mode),
+                        self.browser_loop
+                    )
+                    future.result()
+                else:
+                    print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
+                    asyncio.run(self.async_xiaohongshu_crawler_batch(input_list, max_count, content_type, crawler_mode))
+
+                print(f"✅ 批量采集完成！共 {total_groups} 个笔记\n")
+                logger.info(f"批量采集完成！共 {total_groups} 个笔记")
+
+            else:
+                # 🔥 关键词/创作者模式：逐个处理
+                for index, input_item in enumerate(input_list, 1):
+                    if self.stop_flag:
+                        print(f"⏹️ 用户停止采集")
+                        break
+
+                    print(f"\n{'='*60}")
+                    print(f"🔍 [{index}/{total_groups}] 正在采集{mode_name}: {input_item}")
+                    print(f"{'='*60}\n")
+
+                    # 更新状态
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item:
+                        self.update_status(f"[{i}/{t}] 正在采集: {item}"))
+
+                    # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
+                    if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.async_xiaohongshu_crawler(input_item, max_count, content_type, index, total_groups, crawler_mode),
+                            self.browser_loop
+                        )
+                        future.result()
+                    else:
+                        print("⚠️ 浏览器事件循环不存在，使用新的事件循环")
+                        asyncio.run(self.async_xiaohongshu_crawler(input_item, max_count, content_type, index, total_groups, crawler_mode))
+
+                    print(f"✅ [{index}/{total_groups}] {mode_name} '{input_item}' 采集完成\n")
+                    logger.info(f"[{index}/{total_groups}] {mode_name} '{input_item}' 采集完成")
+
+            print(f"\n🎉 批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
+            logger.info(f"批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
+
+            # 🔥 采集完成后关闭浏览器,释放资源
+            print("\n🧹 正在关闭浏览器,释放资源...")
+            logger.info("采集完成,关闭浏览器")
+            self.cleanup_browser()
+            print("✅ 浏览器已关闭\n")
+
+        except Exception as e:
+            logger.error(f"小红书统一浏览器采集失败: {e}", exc_info=True)
+            print(f"❌ 小红书统一浏览器采集失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # 🔥 出错也要关闭浏览器
+            print("\n🧹 正在关闭浏览器...")
+            self.cleanup_browser()
+            raise
+
     async def async_douyin_crawler(self, input_item: str, max_count: int, content_type: str,
                                    current_index: int = 1, total_groups: int = 1, crawler_mode: str = "search"):
         """异步抖音采集任务 - 支持批量关键词/链接/创作者"""
@@ -1600,6 +1772,11 @@ class MediaCrawlerGUI:
 
                 print(f"📊 进度: [{current}/{total}] {message}")
 
+            # 🔥 定义停止标志检查函数
+            def check_stop_flag():
+                """检查是否应该停止采集"""
+                return self.stop_flag
+
             # 🔥 使用统一浏览器进行采集，传递完整配置和进度回调
             generated_files = await run_unified_crawler(
                 keywords=input_item if crawler_mode == "search" else None,
@@ -1614,7 +1791,8 @@ class MediaCrawlerGUI:
                 enable_sub_comments=enable_sub_comments,
                 save_format=save_format,
                 output_dir=output_dir,
-                progress_callback=progress_callback
+                progress_callback=progress_callback,
+                stop_flag_callback=check_stop_flag
             )
 
             # 采集完成
@@ -1700,10 +1878,16 @@ class MediaCrawlerGUI:
             print(f"   保存格式: {save_format}")
             print(f"   输出目录: {output_dir}")
 
+            # 🔥 定义停止标志检查函数
+            def check_stop_flag():
+                """检查是否应该停止采集"""
+                return self.stop_flag
+
             # 🔥 创建统一浏览器采集器
             crawler = UnifiedBrowserCrawler(
                 shared_context=self.shared_context,
-                shared_page=self.shared_page
+                shared_page=self.shared_page,
+                stop_flag_callback=check_stop_flag
             )
 
             # 🔥 一次性设置所有链接
@@ -1731,6 +1915,187 @@ class MediaCrawlerGUI:
             # 开始采集
             if crawler.crawler:
                 await crawler.start_unified_douyin_crawling()
+
+            print(f"✅ 批量链接采集完成！")
+            logger.info(f"批量链接采集完成！")
+
+        except Exception as e:
+            error_msg = f"批量链接采集失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            self.root.after(0, lambda: self.update_status("❌ 采集失败"))
+            raise Exception(error_msg)
+
+    async def async_xiaohongshu_crawler(self, input_item: str, max_count: int, content_type: str,
+                                       current_index: int = 1, total_groups: int = 1, crawler_mode: str = "search"):
+        """异步小红书采集任务 - 支持批量关键词/链接/创作者"""
+        try:
+            from 统一浏览器采集器 import run_unified_crawler
+
+            # 🔥 获取GUI配置参数
+            max_comments_per_note = int(self.max_comments_var.get())
+            enable_comments = self.enable_comments_var.get()
+            enable_sub_comments = self.enable_sub_comments_var.get()
+            save_format = self.save_format_var.get()
+            output_dir = self.output_dir_var.get()
+
+            # 更新状态
+            status_msg = f"🔥 [{current_index}/{total_groups}] 采集: {input_item}..."
+            self.root.after(0, lambda: self.update_status(status_msg))
+
+            logger.info(f"GUI配置参数: 模式={crawler_mode}, 输入={input_item}, 笔记数={max_count}, 评论数={max_comments_per_note}, 格式={save_format}")
+            print(f"📋 GUI配置参数:")
+            print(f"   采集模式: {crawler_mode}")
+            print(f"   输入内容: {input_item}")
+            print(f"   笔记数量: {max_count} 个")
+            print(f"   每个笔记评论数: {max_comments_per_note} 条")
+            print(f"   一级评论: {enable_comments}")
+            print(f"   二级评论: {enable_sub_comments}")
+            print(f"   保存格式: {save_format}")
+            print(f"   输出目录: {output_dir}")
+
+            # 🔥 定义进度回调函数
+            def progress_callback(current, total, message):
+                """进度回调：更新GUI进度显示"""
+                progress = current / total if total > 0 else 0
+                progress_text = f"[{current_index}/{total_groups}] {current}/{total} {content_type}"
+
+                # 在主线程中更新UI
+                self.root.after(0, lambda: self.progress_bar.set(progress))
+                self.root.after(0, lambda: self.progress_text.configure(text=progress_text))
+                self.root.after(0, lambda: self.update_status(f"🔥 {message}"))
+
+                print(f"📊 进度: [{current}/{total}] {message}")
+
+            # 🔥 使用统一浏览器进行采集，传递完整配置和进度回调
+            generated_files = await run_unified_crawler(
+                keywords=input_item if crawler_mode == "search" else None,
+                note_url=input_item if crawler_mode == "detail" else None,
+                creator_url=input_item if crawler_mode == "creator" else None,
+                crawler_mode=crawler_mode,
+                shared_context=self.shared_context,
+                shared_page=self.shared_page,
+                max_count=max_count,
+                max_comments_per_note=max_comments_per_note,
+                enable_comments=enable_comments,
+                enable_sub_comments=enable_sub_comments,
+                save_format=save_format,
+                output_dir=output_dir,
+                progress_callback=progress_callback,
+                platform="xhs"  # 🔥 指定平台为小红书
+            )
+
+            # 🔥 采集完成后的处理
+            print(f"\n✅ [{current_index}/{total_groups}] 采集完成！")
+            logger.info(f"[{current_index}/{total_groups}] 采集完成")
+
+            # 更新进度为100%
+            self.root.after(0, lambda: self.progress_bar.set(1.0))
+            self.root.after(0, lambda: self.progress_text.configure(
+                text=f"[{current_index}/{total_groups}] {max_count}/{max_count} {content_type}"
+            ))
+
+            # 🔥 如果是关键词搜索模式，清空输入框
+            if crawler_mode == "search" and current_index == total_groups:
+                self.root.after(0, lambda: self.keywords_textbox.delete("1.0", "end"))
+                self.root.after(0, lambda: self.update_status(
+                    f"✅ [{current_index}/{total_groups}] 采集完成！\n"
+                    f"✨ 关键词输入框已清空，可以输入新关键词继续采集"
+                ))
+
+            # 🔥 自动打开最后一组的评论文件（如果存在）
+            if current_index == total_groups and generated_files and "comments" in generated_files:
+                import os
+                import subprocess
+                import platform
+
+                comments_file = generated_files["comments"]
+                if os.path.exists(comments_file):
+                    try:
+                        if platform.system() == "Windows":
+                            os.startfile(comments_file)
+                        elif platform.system() == "Darwin":  # macOS
+                            subprocess.run(["open", comments_file])
+                        else:  # Linux
+                            subprocess.run(["xdg-open", comments_file])
+                        print(f"✅ 已自动打开最后一组的评论文件: {comments_file}")
+                    except Exception as e:
+                        print(f"⚠️ 无法自动打开文件: {e}")
+
+        except Exception as e:
+            error_msg = f"统一浏览器采集失败: {str(e)}"
+            self.root.after(0, lambda: self.update_status("❌ 采集失败"))
+            raise Exception(error_msg)
+
+    async def async_xiaohongshu_crawler_batch(self, note_urls: list, max_count: int, content_type: str, crawler_mode: str = "detail"):
+        """
+        异步小红书批量链接采集 - 所有链接输出到同一个文件
+
+        Args:
+            note_urls: 笔记链接列表
+            max_count: 最大采集数量(对detail模式无效)
+            content_type: 内容类型
+            crawler_mode: 采集模式(应该是"detail")
+        """
+        try:
+            from 统一浏览器采集器 import UnifiedBrowserCrawler
+
+            # 🔥 获取GUI配置参数
+            max_comments_per_note = int(self.max_comments_var.get())
+            enable_comments = self.enable_comments_var.get()
+            enable_sub_comments = self.enable_sub_comments_var.get()
+            save_format = self.save_format_var.get()
+            output_dir = self.output_dir_var.get()
+
+            logger.info(f"批量链接采集: {len(note_urls)} 个笔记")
+            print(f"📋 批量链接采集配置:")
+            print(f"   笔记数量: {len(note_urls)} 个")
+            print(f"   每个笔记评论数: {max_comments_per_note} 条")
+            print(f"   一级评论: {enable_comments}")
+            print(f"   二级评论: {enable_sub_comments}")
+            print(f"   保存格式: {save_format}")
+            print(f"   输出目录: {output_dir}")
+
+            # 🔥 定义停止标志检查函数
+            def check_stop_flag():
+                """检查是否应该停止采集"""
+                return self.stop_flag
+
+            # 🔥 创建统一浏览器采集器
+            crawler = UnifiedBrowserCrawler(
+                shared_context=self.shared_context,
+                shared_page=self.shared_page,
+                stop_flag_callback=check_stop_flag
+            )
+
+            # 🔥 一次性设置所有链接
+            import config
+            from config import xhs_config
+            # 🔥 关键修复: 同时设置config和xhs_config,确保两者一致
+            config.XHS_SPECIFIED_NOTE_URL_LIST = note_urls
+            xhs_config.XHS_SPECIFIED_NOTE_URL_LIST = note_urls
+            config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_per_note
+            config.CRAWLER_TYPE = "detail"
+            config.PLATFORM = "xhs"
+            config.ENABLE_GET_COMMENTS = enable_comments
+            config.ENABLE_GET_SUB_COMMENTS = enable_sub_comments
+            config.SAVE_DATA_OPTION = save_format
+
+            # 🔥 重置store
+            from store.xhs import XhsStoreFactory
+            import store.xhs as xhs_store
+            XhsStoreFactory.reset_store()
+            if hasattr(xhs_store, '_note_info_cache'):
+                xhs_store._note_info_cache.clear()
+
+            if output_dir:
+                XhsStoreFactory.set_output_dir(output_dir)
+
+            # 设置爬虫
+            await crawler.setup_crawler("xhs")
+
+            # 开始采集
+            if crawler.crawler:
+                await crawler.start_unified_xiaohongshu_crawling()
 
             print(f"✅ 批量链接采集完成！")
             logger.info(f"批量链接采集完成！")
@@ -1976,6 +2341,7 @@ MediaCrawler 使用帮助
                     user_data_dir=self.clean_browser_dir,  # 使用固定的干净目录
                     headless=False,
                     viewport={"width": 1920, "height": 1080},
+                    user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     args=[
                         '--disable-blink-features=AutomationControlled',
                         '--disable-web-security',
@@ -1983,14 +2349,18 @@ MediaCrawler 使用帮助
                         '--disable-dev-shm-usage',
                         '--disable-extensions',
                         '--disable-plugins',
-                        '--disable-images',  # 加快加载速度
+                        # '--disable-images',  # 🔥 移除这个,小红书需要加载图片来检测登录状态
                         '--disable-javascript-harmony-shipping',
                         '--disable-background-timer-throttling',
                         '--disable-renderer-backgrounding',
                         '--disable-backgrounding-occluded-windows',
                         '--disable-features=TranslateUI',
-                        '--disable-ipc-flooding-protection'
-                    ]
+                        '--disable-ipc-flooding-protection',
+                        '--disable-infobars',
+                        '--window-size=1920,1080',
+                        '--start-maximized'
+                    ],
+                    ignore_default_args=['--enable-automation']
                 )
             except Exception as browser_error:
                 error_msg = str(browser_error)
@@ -2008,6 +2378,37 @@ MediaCrawler 使用帮助
 
             # 创建页面
             self.shared_page = await self.shared_context.new_page()
+
+            # 🔥 注入反检测脚本
+            await self.shared_page.add_init_script("""
+                // 隐藏webdriver特征
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+
+                // 伪装chrome对象
+                window.chrome = {
+                    runtime: {}
+                };
+
+                // 伪装permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+
+                // 伪装plugins
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+
+                // 伪装languages
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['zh-CN', 'zh', 'en']
+                });
+            """)
 
             # 🔥 立即加载已保存的登录信息（如果存在）
             login_loaded = await self.load_saved_login_info(platform)
@@ -2148,6 +2549,71 @@ MediaCrawler 使用帮助
 
         except Exception as e:
             print(f"❌ 保存登录信息失败: {e}")
+            return False
+
+    async def _check_platform_login_status(self, platform: str, page) -> bool:
+        """🔥 检测平台是否已登录(通过页面元素判断)"""
+        try:
+            # 等待页面加载
+            await asyncio.sleep(2)
+
+            # 不同平台的登录检测策略
+            if platform == 'xhs':
+                # 小红书:检查是否有用户头像或用户名
+                try:
+                    # 方法1: 检查是否有用户头像
+                    avatar = await page.query_selector('img[class*="avatar"]')
+                    if avatar:
+                        print(f"   ✅ 检测到用户头像,已登录")
+                        return True
+
+                    # 方法2: 检查是否有"登录"按钮(如果有,说明未登录)
+                    login_btn = await page.query_selector('text=登录')
+                    if login_btn:
+                        print(f"   ❌ 检测到'登录'按钮,未登录")
+                        return False
+
+                    # 方法3: 检查Cookies中是否有web_session
+                    cookies = await page.context.cookies()
+                    for cookie in cookies:
+                        if cookie['name'] == 'web_session' and cookie['value']:
+                            print(f"   ✅ 检测到web_session cookie,已登录")
+                            return True
+
+                    print(f"   ⚠️ 无法确定登录状态,默认为未登录")
+                    return False
+
+                except Exception as e:
+                    print(f"   ⚠️ 登录检测失败: {e}")
+                    return False
+
+            elif platform == 'dy':
+                # 抖音:检查是否有用户信息
+                try:
+                    # 检查是否有"登录"按钮
+                    login_btn = await page.query_selector('text=登录')
+                    if login_btn:
+                        return False
+
+                    # 检查是否有用户头像
+                    avatar = await page.query_selector('img[class*="avatar"]')
+                    if avatar:
+                        return True
+
+                    return False
+                except:
+                    return False
+
+            else:
+                # 其他平台:默认检查是否有"登录"按钮
+                try:
+                    login_btn = await page.query_selector('text=登录')
+                    return login_btn is None
+                except:
+                    return False
+
+        except Exception as e:
+            print(f"   ❌ 登录状态检测失败: {e}")
             return False
 
     def check_saved_login_status(self, platform: str):

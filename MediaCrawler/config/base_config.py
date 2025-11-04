@@ -14,7 +14,7 @@ KEYWORDS = "玩具"  # 关键词搜索配置，以英文逗号分隔
 LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
 COOKIES = ""
 CRAWLER_TYPE = (
-    "search"  # 爬取类型，search(关键词搜索) | detail(帖子详情)| creator(创作者主页数据)
+    "detail"  # 爬取类型，search(关键词搜索) | detail(帖子详情)| creator(创作者主页数据)
 )
 # 是否开启 IP 代理
 ENABLE_IP_PROXY = False
@@ -38,7 +38,7 @@ SAVE_LOGIN_STATE = True
 # 是否启用CDP模式 - 使用用户现有的Chrome/Edge浏览器进行爬取，提供更好的反检测能力
 # 启用后将自动检测并启动用户的Chrome/Edge浏览器，通过CDP协议进行控制
 # 这种方式使用真实的浏览器环境，包括用户的扩展、Cookie和设置，大大降低被检测的风险
-ENABLE_CDP_MODE = True
+ENABLE_CDP_MODE = False
 
 # CDP调试端口，用于与浏览器通信
 # 如果端口被占用，系统会自动尝试下一个可用端口
@@ -55,7 +55,7 @@ CUSTOM_BROWSER_PATH = ""
 CDP_HEADLESS = False
 
 # 浏览器启动超时时间（秒）
-BROWSER_LAUNCH_TIMEOUT = 30
+BROWSER_LAUNCH_TIMEOUT = 120
 
 # 是否在程序结束时自动关闭浏览器
 # 设置为False可以保持浏览器运行，便于调试
@@ -71,7 +71,7 @@ USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name
 START_PAGE = 1
 
 # 爬取视频/帖子的数量控制
-CRAWLER_MAX_NOTES_COUNT = 3
+CRAWLER_MAX_NOTES_COUNT = 2
 
 # 并发爬虫数量控制
 MAX_CONCURRENCY_NUM = 1
@@ -83,7 +83,7 @@ ENABLE_GET_MEIDAS = False
 ENABLE_GET_COMMENTS = True
 
 # 爬取一级评论的数量控制(单视频/帖子)
-CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 50
+CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = 20
 
 # 是否开启爬二级评论模式, 默认不开启爬二级评论
 # 老版本项目使用了 db, 则需参考 schema/tables.sql line 287 增加表字段
@@ -107,6 +107,13 @@ FONT_PATH = "./docs/STZHONGS.TTF"
 
 # 爬取间隔时间
 CRAWLER_MAX_SLEEP_SEC = 2
+
+# 🔥 RPA搜索模式开关
+# 是否启用RPA混合模式进行关键词搜索
+# True: 使用RPA模式(浏览器自动化)搜索并收集链接,然后用API抓取评论
+# False: 使用纯API模式搜索
+# 支持平台: 抖音(dy)、小红书(xhs)
+ENABLE_RPA_SEARCH = True
 
 from .bilibili_config import *
 from .xhs_config import *

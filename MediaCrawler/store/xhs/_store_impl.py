@@ -20,9 +20,13 @@ from tools.time_util import get_current_timestamp
 from var import crawler_type_var
 
 class XhsCsvStoreImplement(AbstractStore):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.writer = AsyncFileWriter(platform="xhs", crawler_type=crawler_type_var.get())
+    def __init__(self, output_dir: str = None):
+        # 🔥 不调用super().__init__(),因为AbstractStore没有__init__方法
+        self.writer = AsyncFileWriter(
+            platform="xhs",
+            crawler_type=crawler_type_var.get(),
+            output_dir=output_dir  # 🔥 传递自定义输出目录
+        )
 
     async def store_content(self, content_item: Dict):
         """
@@ -49,9 +53,13 @@ class XhsCsvStoreImplement(AbstractStore):
 
 
 class XhsJsonStoreImplement(AbstractStore):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.writer = AsyncFileWriter(platform="xhs", crawler_type=crawler_type_var.get())
+    def __init__(self, output_dir: str = None):
+        # 🔥 不调用super().__init__(),因为AbstractStore没有__init__方法
+        self.writer = AsyncFileWriter(
+            platform="xhs",
+            crawler_type=crawler_type_var.get(),
+            output_dir=output_dir  # 🔥 传递自定义输出目录
+        )
 
     async def store_content(self, content_item: Dict):
         """

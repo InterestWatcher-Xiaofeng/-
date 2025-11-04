@@ -17,8 +17,8 @@ SORT_TYPE = "popularity_descending"
 
 # 指定笔记URL列表, 必须要携带xsec_token参数
 XHS_SPECIFIED_NOTE_URL_LIST = [
-    "https://www.xiaohongshu.com/explore/66fad51c000000001b0224b8?xsec_token=AB3rO-QopW5sgrJ41GwN01WCXh6yWPxjSoFI9D5JIMgKw=&xsec_source=pc_search"
-    # ........................
+    "https://www.xiaohongshu.com/explore/68e5cfe700000000070155f8?xsec_token=ABvtnJKr4wuvcowlUzmI6ABKIL5elLWjhAnZCICqxCm0g=&xsec_source=pc_feed",
+    "https://www.xiaohongshu.com/explore/69041dd7000000000401446a?xsec_token=ABLpYaPvP0GLX77PLAH33eXcjZm9ekZgd1Ba4rXvqOvWc=&xsec_source=pc_feed"
 ]
 
 # 指定创作者URL列表 (支持完整URL或纯ID)

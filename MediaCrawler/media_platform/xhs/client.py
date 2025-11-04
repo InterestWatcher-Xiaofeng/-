@@ -63,9 +63,36 @@ class XiaoHongShuClient(AbstractApiClient):
         Returns:
 
         """
-        encrypt_params = await self.playwright_page.evaluate(
-            "([url, data]) => window._webmsxyw(url,data)", [url, data]
-        )
+        # 🔥 等待window._webmsxyw函数加载完成
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # 检查函数是否存在
+                func_exists = await self.playwright_page.evaluate(
+                    "() => typeof window._webmsxyw === 'function'"
+                )
+
+                if not func_exists:
+                    if attempt < max_retries - 1:
+                        utils.logger.warning(f"[XiaoHongShuClient._pre_headers] window._webmsxyw not ready, retry {attempt + 1}/{max_retries}")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        raise Exception("window._webmsxyw function not found after retries")
+
+                # 调用加密函数
+                encrypt_params = await self.playwright_page.evaluate(
+                    "([url, data]) => window._webmsxyw(url,data)", [url, data]
+                )
+                break
+
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    utils.logger.warning(f"[XiaoHongShuClient._pre_headers] Attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(1)
+                else:
+                    raise
+
         local_storage = await self.playwright_page.evaluate("() => window.localStorage")
         signs = sign(
             a1=self.cookie_dict.get("a1", ""),
@@ -355,26 +382,48 @@ class XiaoHongShuClient(AbstractApiClient):
         Returns:
 
         """
+        import random
+
         result = []
         comments_has_more = True
         comments_cursor = ""
+
+        # 🔥 添加调试信息
+        utils.logger.info(f"[XiaoHongShuClient.get_note_all_comments] 开始获取评论, note_id={note_id}, max_count={max_count}")
+
+        page_num = 0
         while comments_has_more and len(result) < max_count:
+            page_num += 1
+
             comments_res = await self.get_note_comments(
                 note_id=note_id, xsec_token=xsec_token, cursor=comments_cursor
             )
             comments_has_more = comments_res.get("has_more", False)
             comments_cursor = comments_res.get("cursor", "")
+
+            # 🔥 添加调试信息
+            utils.logger.info(f"[XiaoHongShuClient.get_note_all_comments] 第{page_num}页: 当前已获取={len(result)}, has_more={comments_has_more}")
+
             if "comments" not in comments_res:
                 utils.logger.info(
                     f"[XiaoHongShuClient.get_note_all_comments] No 'comments' key found in response: {comments_res}"
                 )
                 break
             comments = comments_res["comments"]
+
+            # 🔥 添加调试信息
+            utils.logger.info(f"[XiaoHongShuClient.get_note_all_comments] 本次获取={len(comments)}条评论")
+
             if len(result) + len(comments) > max_count:
                 comments = comments[: max_count - len(result)]
             if callback:
                 await callback(note_id, comments)
-            await asyncio.sleep(crawl_interval)
+
+            # 🔥 增加随机延迟,模拟真实用户阅读评论的时间
+            delay = random.uniform(8, 12)
+            utils.logger.info(f"[XiaoHongShuClient.get_note_all_comments] 等待 {delay:.1f} 秒后获取下一页...")
+            await asyncio.sleep(delay)
+
             result.extend(comments)
             sub_comments = await self.get_comments_all_sub_comments(
                 comments=comments,
@@ -383,6 +432,10 @@ class XiaoHongShuClient(AbstractApiClient):
                 callback=callback,
             )
             result.extend(sub_comments)
+
+        # 🔥 添加调试信息
+        utils.logger.info(f"[XiaoHongShuClient.get_note_all_comments] 完成获取评论, note_id={note_id}, 总计={len(result)}条")
+
         return result
 
     async def get_comments_all_sub_comments(

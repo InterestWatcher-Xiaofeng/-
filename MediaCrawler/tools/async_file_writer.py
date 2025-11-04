@@ -132,9 +132,14 @@ class AsyncFileWriter:
         crawler_type = getattr(config, 'CRAWLER_TYPE', 'search')
 
         if crawler_type == "detail":
-            # 🔥 多链接模式：时间戳_X条视频_评论.csv
-            video_count = len(getattr(config, 'DY_SPECIFIED_ID_LIST', []))
-            file_name = f"{timestamp}_{video_count}条视频_{type_name}.{file_type}"
+            # 🔥 多链接模式：时间戳_X条视频/笔记_评论.csv
+            # 根据平台选择对应的配置
+            if self.platform == "xhs":
+                note_count = len(getattr(config, 'XHS_SPECIFIED_NOTE_URL_LIST', []))
+                file_name = f"{timestamp}_{note_count}条笔记_{type_name}.{file_type}"
+            else:
+                video_count = len(getattr(config, 'DY_SPECIFIED_ID_LIST', []))
+                file_name = f"{timestamp}_{video_count}条视频_{type_name}.{file_type}"
         elif crawler_type == "creator":
             # 🔥 创作者模式：博主名_X条视频_评论.csv
             if self.creator_info and self.creator_info.get("nickname"):

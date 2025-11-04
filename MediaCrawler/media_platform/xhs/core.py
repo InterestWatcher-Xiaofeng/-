@@ -25,7 +25,8 @@ from tenacity import RetryError
 
 import config
 from base.base_crawler import AbstractCrawler
-from config import CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES
+# 🔥 不要直接导入CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,因为它会在模块加载时固定值
+# from config import CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES
 from model.m_xiaohongshu import NoteUrlInfo, CreatorUrlInfo
 from proxy.proxy_ip_pool import IpInfoModel, create_ip_pool
 from store import xhs as xhs_store
@@ -240,27 +241,71 @@ class XiaoHongShuCrawler(AbstractCrawler):
         Returns:
 
         """
-        get_note_detail_task_list = []
-        for full_note_url in config.XHS_SPECIFIED_NOTE_URL_LIST:
-            note_url_info: NoteUrlInfo = parse_note_info_from_note_url(full_note_url)
-            utils.logger.info(f"[XiaoHongShuCrawler.get_specified_notes] Parse note url info: {note_url_info}")
-            crawler_task = self.get_note_detail_async_task(
-                note_id=note_url_info.note_id,
-                xsec_source=note_url_info.xsec_source,
-                xsec_token=note_url_info.xsec_token,
-                semaphore=asyncio.Semaphore(config.MAX_CONCURRENCY_NUM),
-            )
-            get_note_detail_task_list.append(crawler_task)
+        import random
 
+        # 🔥 改为逐个串行处理,避免触发反爬虫
+        # 每个笔记之间加10-15秒随机延迟
+        all_note_urls = config.XHS_SPECIFIED_NOTE_URL_LIST
         need_get_comment_note_ids = []
         xsec_tokens = []
-        note_details = await asyncio.gather(*get_note_detail_task_list)
-        for note_detail in note_details:
-            if note_detail:
-                need_get_comment_note_ids.append(note_detail.get("note_id", ""))
-                xsec_tokens.append(note_detail.get("xsec_token", ""))
-                await xhs_store.update_xhs_note(note_detail)
-                await self.get_notice_media(note_detail)
+
+        total_notes = len(all_note_urls)
+        utils.logger.info(f"[XiaoHongShuCrawler.get_specified_notes] 开始处理 {total_notes} 个笔记,逐个串行处理")
+        print(f"\n🔥 开始处理 {total_notes} 个笔记")
+        print(f"⏰ 每个笔记之间延迟 30-45 秒,模拟真实用户行为")
+        print(f"📊 预计总耗时: {total_notes * 37.5 / 60:.1f} 分钟\n")
+
+        for index, full_note_url in enumerate(all_note_urls, 1):
+            try:
+                note_url_info: NoteUrlInfo = parse_note_info_from_note_url(full_note_url)
+                utils.logger.info(f"[XiaoHongShuCrawler.get_specified_notes] [{index}/{total_notes}] Parse note url info: {note_url_info}")
+                print(f"📝 [{index}/{total_notes}] 正在处理笔记: {note_url_info.note_id}")
+
+                # 🔥 逐个处理笔记 - 直接调用API
+                note_detail = None
+                try:
+                    note_detail = await self.xhs_client.get_note_by_id(
+                        note_url_info.note_id,
+                        note_url_info.xsec_source,
+                        note_url_info.xsec_token
+                    )
+                except Exception as e:
+                    utils.logger.warning(f"[XiaoHongShuCrawler.get_specified_notes] get_note_by_id failed: {e}, trying HTML method...")
+
+                # 如果API失败,尝试HTML方法
+                if not note_detail:
+                    try:
+                        note_detail = await self.xhs_client.get_note_by_id_from_html(
+                            note_url_info.note_id,
+                            note_url_info.xsec_source,
+                            note_url_info.xsec_token,
+                            enable_cookie=True
+                        )
+                    except Exception as e:
+                        utils.logger.error(f"[XiaoHongShuCrawler.get_specified_notes] get_note_by_id_from_html failed: {e}")
+
+                if note_detail:
+                    note_detail.update({"xsec_token": note_url_info.xsec_token, "xsec_source": note_url_info.xsec_source})
+                    need_get_comment_note_ids.append(note_detail.get("note_id", ""))
+                    xsec_tokens.append(note_detail.get("xsec_token", ""))
+                    await xhs_store.update_xhs_note(note_detail)
+                    await self.get_notice_media(note_detail)
+                    print(f"   ✅ 笔记详情获取成功")
+                else:
+                    print(f"   ⚠️ 笔记详情获取失败")
+
+            except Exception as e:
+                utils.logger.error(f"[XiaoHongShuCrawler.get_specified_notes] [{index}/{total_notes}] 获取笔记详情失败: {e}")
+                print(f"   ❌ 获取笔记详情失败: {str(e)[:50]}")
+
+            # 🔥 每个笔记之间加30-45秒随机延迟,模拟真实用户行为
+            if index < total_notes:
+                delay = random.uniform(30, 45)
+                utils.logger.info(f"[XiaoHongShuCrawler.get_specified_notes] 等待 {delay:.1f} 秒后处理下一个笔记...")
+                print(f"   ⏰ 等待 {delay:.1f} 秒后处理下一个笔记...\n")
+                await asyncio.sleep(delay)
+
+        print(f"\n✅ 所有笔记详情获取完成,开始获取评论...\n")
         await self.batch_get_note_comments(need_get_comment_note_ids, xsec_tokens)
 
     async def get_note_detail_async_task(
@@ -313,20 +358,34 @@ class XiaoHongShuCrawler(AbstractCrawler):
 
     async def batch_get_note_comments(self, note_list: List[str], xsec_tokens: List[str]):
         """Batch get note comments"""
+        import random
+
         if not config.ENABLE_GET_COMMENTS:
             utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Crawling comment mode is not enabled")
             return
 
         utils.logger.info(f"[XiaoHongShuCrawler.batch_get_note_comments] Begin batch get note comments, note list: {note_list}")
-        semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
-        task_list: List[Task] = []
-        for index, note_id in enumerate(note_list):
-            task = asyncio.create_task(
-                self.get_comments(note_id=note_id, xsec_token=xsec_tokens[index], semaphore=semaphore),
-                name=note_id,
-            )
-            task_list.append(task)
-        await asyncio.gather(*task_list)
+
+        # 🔥 改为逐个串行处理评论,避免触发反爬虫
+        total_notes = len(note_list)
+        print(f"\n🔥 开始获取 {total_notes} 个笔记的评论")
+        print(f"⏰ 每个笔记之间延迟 30-45 秒,模拟真实用户行为\n")
+
+        for index, note_id in enumerate(note_list, 1):
+            try:
+                print(f"💬 [{index}/{total_notes}] 正在获取笔记 {note_id} 的评论...")
+                await self.get_comments(note_id=note_id, xsec_token=xsec_tokens[index-1], semaphore=asyncio.Semaphore(1))
+                print(f"   ✅ 评论获取成功")
+
+                # 🔥 每个笔记之间加30-45秒随机延迟,模拟真实用户行为
+                if index < total_notes:
+                    delay = random.uniform(30, 45)
+                    print(f"   ⏰ 等待 {delay:.1f} 秒后处理下一个笔记...\n")
+                    await asyncio.sleep(delay)
+
+            except Exception as e:
+                utils.logger.error(f"[XiaoHongShuCrawler.batch_get_note_comments] [{index}/{total_notes}] 获取评论失败: {e}")
+                print(f"   ❌ 获取评论失败: {str(e)[:50]}\n")
 
     async def get_comments(self, note_id: str, xsec_token: str, semaphore: asyncio.Semaphore):
         """Get note comments with keyword filtering and quantity limitation"""
@@ -334,12 +393,14 @@ class XiaoHongShuCrawler(AbstractCrawler):
             utils.logger.info(f"[XiaoHongShuCrawler.get_comments] Begin get note id comments {note_id}")
             # Use fixed crawling interval
             crawl_interval = config.CRAWLER_MAX_SLEEP_SEC
+            # 🔥 使用config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES而不是导入的变量
+            # 这样可以获取运行时的最新值
             await self.xhs_client.get_note_all_comments(
                 note_id=note_id,
                 xsec_token=xsec_token,
                 crawl_interval=crawl_interval,
                 callback=xhs_store.batch_update_xhs_note_comments,
-                max_count=CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
+                max_count=config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES,
             )
             
             # Sleep after fetching comments
