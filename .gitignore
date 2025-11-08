@@ -1,0 +1,35 @@
+﻿# 浏览器数据（包含登录信息）
+browser_data/
+红枫工具箱/browser_data/
+
+# 登录数据
+login_data/
+红枫工具箱/login_data/
+
+# 采集的数据文件
+data/
+红枫工具箱/data/
+*.csv
+*.json
+*.xlsx
+
+# 日志文件
+logs/
+红枫工具箱/logs/
+
+# Python缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
