@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Browser Data (包含登录信息，不上传)
+browser_data/
+MediaCrawler/MediaCrawler/browser_data/
+
+# Data Files (采集的数据，不上传)
+data/
+MediaCrawler/MediaCrawler/data/
+*.csv
+*.json
+*.xlsx
+
+# Logs
+*.log
+logs/
+
+# PyInstaller
+*.spec.bak
+build/
+dist/
+
+# Playwright
+.playwright/
+
+# Playwright browsers (太大，不上传 - 约357MB)
+playwright_browsers/
+MediaCrawler/playwright_browsers/
+MediaCrawler/MediaCrawler/playwright_browsers/
+
+# Cache
+.cache/
+*.cache
+
+# Temporary files
+*.tmp
+*.temp
+~*
+
+# 发布版的exe和_internal（太大，不上传）
+MediaCrawler/MediaCrawler/红枫工具箱-发布版/红枫工具箱/红枫工具箱.exe
+MediaCrawler/MediaCrawler/红枫工具箱-发布版/红枫工具箱/_internal/
+
+# 但保留启动脚本和说明文件
+!MediaCrawler/MediaCrawler/红枫工具箱-发布版/红枫工具箱/启动红枫工具箱.bat
+!MediaCrawler/MediaCrawler/红枫工具箱-发布版/README.txt
+!MediaCrawler/MediaCrawler/红枫工具箱-发布版/版本说明.md
+

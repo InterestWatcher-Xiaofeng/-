@@ -1,0 +1,231 @@
+import asyncio
+import csv
+import json
+import os
+import pathlib
+from typing import Dict, List, Optional
+import aiofiles
+from tools.utils import utils
+
+class AsyncFileWriter:
+    def __init__(self, platform: str, crawler_type: str, output_dir: Optional[str] = None):
+        self.lock = asyncio.Lock()
+        self.platform = platform
+        self.crawler_type = crawler_type
+        self.output_dir = output_dir  # 🔥 新增：自定义输出目录
+        self.file_paths = {}  # 🔥 新增：记录生成的文件路径
+        self.creator_info = {}  # 🔥 新增：记录创作者信息(昵称、视频数量)
+
+        # 🔥 定义CSV列顺序 - 只保留用户需要的字段
+        self.column_orders = {
+            "comments": [
+                # 用户指定的9个字段（按顺序）
+                "video_title",        # 视频标题
+                "video_url",          # 视频链接
+                "content",            # 评论内容
+                "ip_location",        # IP归属地
+                "like_count",         # 点赞数
+                "sub_comment_count",  # 子评论数
+                "parent_comment_id",  # 父评论ID
+                "nickname",           # 用户昵称
+                "video_author",       # 视频作者
+            ],
+            "contents": [
+                # 视频内容的列顺序（保持原样）
+                "aweme_id",
+                "title",
+                "desc",
+                "create_time",
+                "user_id",
+                "nickname",
+                "avatar",
+                "liked_count",
+                "comment_count",
+                "share_count",
+                "collected_count",
+                "aweme_type",
+                "aweme_url",
+                "video_url",
+                "video_duration",
+                "music_title",
+                "music_author",
+                "ip_location",
+                "last_modify_ts",
+            ],
+            "creators": [
+                # 创作者的列顺序（保持原样）
+                "user_id",
+                "nickname",
+                "gender",
+                "avatar",
+                "desc",
+                "ip_location",
+                "follows",
+                "fans",
+                "interaction",
+                "videos_count",
+                "last_modify_ts",
+            ]
+        }
+
+    def _get_file_path(self, file_type: str, item_type: str) -> str:
+        # 🔥 如果已经生成过该类型的文件路径，直接返回（确保同一次采集使用同一个文件）
+        cache_key = f"{file_type}_{item_type}"
+        if cache_key in self.file_paths:
+            return self.file_paths[cache_key]
+
+        # 🔥 如果设置了自定义输出目录，使用自定义目录
+        if self.output_dir:
+            base_path = self.output_dir
+        else:
+            base_path = f"data/{self.platform}/{file_type}"
+
+        pathlib.Path(base_path).mkdir(parents=True, exist_ok=True)
+
+        # 🔥 新命名规则：根据采集模式决定文件名
+        import config
+        import re
+        import time
+
+        # 生成时间戳
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+        # 平台名称映射
+        platform_names = {
+            "douyin": "抖音",
+            "xhs": "小红书",
+            "kuaishou": "快手",
+            "bilibili": "B站",
+            "weibo": "微博",
+            "tieba": "贴吧",
+            "zhihu": "知乎"
+        }
+        platform_name = platform_names.get(self.platform, self.platform)
+
+        # 类型名称映射
+        type_names = {
+            "comments": "评论",
+            "contents": "内容",
+            "creators": "创作者",
+            "videos": "视频"
+        }
+        type_name = type_names.get(item_type, item_type)
+
+        # 🔥 根据采集模式决定文件名
+        crawler_type = getattr(config, 'CRAWLER_TYPE', 'search')
+
+        if crawler_type == "detail":
+            # 🔥 多链接模式：时间戳_X条视频/笔记_评论.csv
+            # 根据平台选择对应的配置
+            if self.platform == "xhs":
+                note_count = len(getattr(config, 'XHS_SPECIFIED_NOTE_URL_LIST', []))
+                file_name = f"{timestamp}_{note_count}条笔记_{type_name}.{file_type}"
+            else:
+                video_count = len(getattr(config, 'DY_SPECIFIED_ID_LIST', []))
+                file_name = f"{timestamp}_{video_count}条视频_{type_name}.{file_type}"
+        elif crawler_type == "creator":
+            # 🔥 创作者模式：博主名_X条视频_评论.csv
+            if self.creator_info and self.creator_info.get("nickname"):
+                # 使用真实博主昵称
+                nickname = self.creator_info.get("nickname", "未命名")
+                video_count = self.creator_info.get("video_count", 0)
+                # 清理昵称中的特殊字符
+                clean_nickname = re.sub(r'[\\/:*?"<>|\s]+', '_', nickname)
+                file_name = f"{clean_nickname}_{video_count}条视频_{type_name}.{file_type}"
+            else:
+                # 降级方案：使用创作者ID
+                creator_id = getattr(config, 'DY_CREATOR_ID_LIST', ['未命名'])[0]
+                clean_creator = re.sub(r'[\\/:*?"<>|\s]+', '_', str(creator_id))
+                file_name = f"{timestamp}_{clean_creator}_{type_name}.{file_type}"
+        else:
+            # 关键词搜索模式：关键词_时间戳_评论.csv
+            keywords = getattr(config, 'KEYWORDS', '')
+            clean_keywords = re.sub(r'[\\/:*?"<>|\s]+', '_', keywords.strip())
+            if not clean_keywords:
+                clean_keywords = "未命名"
+            file_name = f"{clean_keywords}_{timestamp}_{type_name}.{file_type}"
+
+        file_path = f"{base_path}/{file_name}"
+
+        # 🔥 记录文件路径（使用cache_key作为键）
+        self.file_paths[cache_key] = file_path
+
+        return file_path
+
+    def get_file_paths(self) -> Dict[str, str]:
+        """获取所有生成的文件路径"""
+        return self.file_paths.copy()
+
+    def set_creator_info(self, nickname: str, video_count: int = 0):
+        """
+        设置创作者信息(用于文件命名)
+
+        Args:
+            nickname: 创作者昵称
+            video_count: 视频数量
+        """
+        self.creator_info = {
+            "nickname": nickname,
+            "video_count": video_count
+        }
+
+    def _get_ordered_fieldnames(self, item: Dict, item_type: str) -> List[str]:
+        """
+        获取有序的字段名列表
+
+        Args:
+            item: 数据项字典
+            item_type: 数据类型（comments/contents/creators）
+
+        Returns:
+            有序的字段名列表
+        """
+        # 获取预定义的列顺序
+        predefined_order = self.column_orders.get(item_type, [])
+
+        # 获取实际数据中的所有键
+        actual_keys = list(item.keys())
+
+        # 🔥 只返回预定义的字段（不包含其他字段）
+        # 按照预定义顺序排列存在的字段
+        ordered_fields = [field for field in predefined_order if field in actual_keys]
+
+        # 🔥 不再添加预定义顺序中没有的字段，只输出用户需要的字段
+        return ordered_fields
+
+    async def write_to_csv(self, item: Dict, item_type: str):
+        file_path = self._get_file_path('csv', item_type)
+        async with self.lock:
+            file_exists = os.path.exists(file_path)
+
+            # 🔥 使用有序的字段名
+            fieldnames = self._get_ordered_fieldnames(item, item_type)
+
+            # 🔥 只保留指定字段的数据
+            filtered_item = {key: item.get(key, '') for key in fieldnames}
+
+            async with aiofiles.open(file_path, 'a', newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                if not file_exists or await f.tell() == 0:
+                    await writer.writeheader()
+                await writer.writerow(filtered_item)
+
+    async def write_single_item_to_json(self, item: Dict, item_type: str):
+        file_path = self._get_file_path('json', item_type)
+        async with self.lock:
+            existing_data = []
+            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    try:
+                        content = await f.read()
+                        if content:
+                            existing_data = json.loads(content)
+                        if not isinstance(existing_data, list):
+                            existing_data = [existing_data]
+                    except json.JSONDecodeError:
+                        existing_data = []
+            
+            existing_data.append(item)
+
+            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                await f.write(json.dumps(existing_data, ensure_ascii=False, indent=4))
