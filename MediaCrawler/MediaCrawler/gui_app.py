@@ -3364,7 +3364,12 @@ MediaCrawler 使用帮助
                     if local_storage:
                         for key, value in local_storage.items():
                             try:
-                                await self.shared_page.evaluate(f"localStorage.setItem('{key}', '{value}')")
+                                # 🔥 修复JavaScript语法错误 - 使用JSON.stringify转义,避免特殊字符导致语法错误
+                                # 使用function语法兼容Chromium 1124
+                                value_json = json.dumps(value)  # Python转JSON字符串
+                                await self.shared_page.evaluate(
+                                    f"function() {{ localStorage.setItem({json.dumps(key)}, {value_json}); }}"
+                                )
                             except Exception as e:
                                 print(f"⚠️ 设置LocalStorage失败 {key}: {e}")
                         print(f"✅ 已加载 {len(local_storage)} 个LocalStorage项")
@@ -3377,7 +3382,12 @@ MediaCrawler 使用帮助
                     if session_storage:
                         for key, value in session_storage.items():
                             try:
-                                await self.shared_page.evaluate(f"sessionStorage.setItem('{key}', '{value}')")
+                                # 🔥 修复JavaScript语法错误 - 使用JSON.stringify转义,避免特殊字符导致语法错误
+                                # 使用function语法兼容Chromium 1124
+                                value_json = json.dumps(value)  # Python转JSON字符串
+                                await self.shared_page.evaluate(
+                                    f"function() {{ sessionStorage.setItem({json.dumps(key)}, {value_json}); }}"
+                                )
                             except Exception as e:
                                 print(f"⚠️ 设置SessionStorage失败 {key}: {e}")
                         print(f"✅ 已加载 {len(session_storage)} 个SessionStorage项")
@@ -3408,14 +3418,16 @@ MediaCrawler 使用帮助
             print(f"✅ 已保存 {len(cookies)} 个Cookies")
 
             # 保存LocalStorage
-            local_storage = await self.shared_page.evaluate("() => Object.assign({}, localStorage)")
+            # 🔥 修复JavaScript语法错误 - 改用function语法,兼容Chromium 1124
+            local_storage = await self.shared_page.evaluate("function() { return Object.assign({}, localStorage); }")
             local_storage_file = os.path.join(self.login_data_dir, "local_storage.json")
             with open(local_storage_file, 'w', encoding='utf-8') as f:
                 json.dump(local_storage, f, ensure_ascii=False, indent=2)
             print(f"✅ 已保存 {len(local_storage)} 个LocalStorage项")
 
             # 保存SessionStorage
-            session_storage = await self.shared_page.evaluate("() => Object.assign({}, sessionStorage)")
+            # 🔥 修复JavaScript语法错误 - 改用function语法,兼容Chromium 1124
+            session_storage = await self.shared_page.evaluate("function() { return Object.assign({}, sessionStorage); }")
             session_storage_file = os.path.join(self.login_data_dir, "session_storage.json")
             with open(session_storage_file, 'w', encoding='utf-8') as f:
                 json.dump(session_storage, f, ensure_ascii=False, indent=2)
