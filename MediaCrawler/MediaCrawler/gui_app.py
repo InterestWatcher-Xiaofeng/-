@@ -89,7 +89,7 @@ class MediaCrawlerGUI:
         self.root = ctk.CTk()
         # 🔥 在标题中显示版本号
         self.root.title(f"🍁 红枫工具箱-数据采集版 {get_version()}")
-        self.root.geometry("1000x700")
+        self.root.geometry("1300x750")  # 适配左右分栏布局
         self.root.resizable(True, True)
 
         # 🔥 设置窗口图标
@@ -119,6 +119,11 @@ class MediaCrawlerGUI:
 
         # 🔥 浏览器驱动状态
         self.browser_driver_installed = None  # None=未检测, True=已安装, False=未安装
+
+        # 🔥 tkinterweb浏览器管理
+        self.tkweb_browser = None
+        self.browser_enabled = True  # 启用tkinterweb浏览器（支持Python 3.12，跨平台兼容）
+        self.browser_frame = None  # 浏览器容器
 
         # 平台信息 - 只保留4个核心平台 (抖音优先)
         self.platforms = {
@@ -171,9 +176,18 @@ class MediaCrawlerGUI:
         )
         version_button.pack(side="right", padx=20)
 
-        # 创建标签页
-        self.notebook = ctk.CTkTabview(self.main_frame)
-        self.notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        # 🔥 创建左右分栏容器
+        content_frame = ctk.CTkFrame(self.main_frame)
+        content_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # 🔥 左侧控制面板（固定宽度700px）
+        control_panel = ctk.CTkFrame(content_frame)
+        control_panel.pack(side="left", fill="both", expand=False, padx=(0, 5))
+        control_panel.configure(width=700)
+
+        # 创建标签页（在控制面板中）
+        self.notebook = ctk.CTkTabview(control_panel)
+        self.notebook.pack(fill="both", expand=True, padx=5, pady=5)
 
         # 添加各个标签页
         self.setup_platform_tab()
@@ -181,6 +195,10 @@ class MediaCrawlerGUI:
         self.setup_login_tab()
         self.setup_output_tab()
         self.setup_results_tab()
+
+        # 🔥 右侧浏览器区域
+        if self.browser_enabled:
+            self.setup_browser_area(content_frame)
 
         # 创建底部控制栏
         self.setup_control_bar()
@@ -564,51 +582,61 @@ class MediaCrawlerGUI:
         ).pack(pady=(10, 5))
 
         # 创建登录状态列表
-        self.login_status_frame = ctk.CTkScrollableFrame(status_frame)
+        self.login_status_frame = ctk.CTkScrollableFrame(status_frame, height=300)
         self.login_status_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.login_buttons = {}
         for platform_id, platform_info in self.platforms.items():
+            # 🔥 优化：增加平台框架的内边距和高度
             platform_frame = ctk.CTkFrame(self.login_status_frame)
-            platform_frame.pack(fill="x", pady=5)
+            platform_frame.pack(fill="x", pady=8, padx=5)
 
-            # 平台信息
+            # 🔥 使用grid布局替代pack，更好控制间距
+            platform_frame.grid_columnconfigure(1, weight=1)  # 状态列可扩展
+
+            # 平台信息（固定宽度）
             info_label = ctk.CTkLabel(
                 platform_frame,
                 text=f"{platform_info['icon']} {platform_info['name']}:",
-                font=ctk.CTkFont(size=14)
+                font=ctk.CTkFont(size=14, weight="bold"),
+                width=120
             )
-            info_label.pack(side="left", padx=10)
+            info_label.grid(row=0, column=0, padx=15, pady=12, sticky="w")
 
-            # 状态标签
+            # 状态标签（可扩展）
             status_label = ctk.CTkLabel(
                 platform_frame,
                 text="❌ 未登录",
-                font=ctk.CTkFont(size=12)
+                font=ctk.CTkFont(size=13),
+                width=150
             )
-            status_label.pack(side="left", padx=10)
+            status_label.grid(row=0, column=1, padx=10, pady=12, sticky="w")
 
             # 按钮容器
-            button_frame = ctk.CTkFrame(platform_frame)
-            button_frame.pack(side="right", padx=10)
+            button_frame = ctk.CTkFrame(platform_frame, fg_color="transparent")
+            button_frame.grid(row=0, column=2, padx=15, pady=8, sticky="e")
 
-            # 登录按钮
+            # 登录按钮（增加宽度）
             login_btn = ctk.CTkButton(
                 button_frame,
                 text="开始登录",
-                width=80,
+                width=100,
+                height=32,
+                font=ctk.CTkFont(size=13),
                 command=lambda p=platform_id: self.start_login(p)
             )
-            login_btn.pack(side="left", padx=2)
+            login_btn.pack(side="left", padx=3)
 
-            # 保存登录信息按钮
+            # 保存登录信息按钮（增加宽度）
             save_btn = ctk.CTkButton(
                 button_frame,
-                text="💾保存",
-                width=60,
+                text="💾 保存",
+                width=80,
+                height=32,
+                font=ctk.CTkFont(size=13),
                 command=lambda p=platform_id: self.manual_save_login(p)
             )
-            save_btn.pack(side="left", padx=2)
+            save_btn.pack(side="left", padx=3)
 
             self.login_buttons[platform_id] = {
                 "status": status_label,
@@ -744,6 +772,373 @@ class MediaCrawlerGUI:
             )
             btn.grid(row=i//3, column=i%3, padx=5, pady=5)
 
+    def setup_browser_area(self, parent_frame):
+        """🔥 设置右侧实时日志显示区域"""
+        # 创建日志容器
+        log_container = ctk.CTkFrame(parent_frame)
+        log_container.pack(side="right", fill="both", expand=True, padx=(5, 0))
+
+        # 日志标题栏
+        log_title_frame = ctk.CTkFrame(log_container)
+        log_title_frame.pack(fill="x", padx=5, pady=5)
+
+        # 日志标题
+        log_title_label = ctk.CTkLabel(
+            log_title_frame,
+            text="📊 实时采集日志",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        log_title_label.pack(side="left", padx=10)
+
+        # 清空日志按钮
+        clear_log_btn = ctk.CTkButton(
+            log_title_frame,
+            text="🗑️ 清空",
+            width=80,
+            height=28,
+            command=self.clear_log_display,
+            font=ctk.CTkFont(size=12)
+        )
+        clear_log_btn.pack(side="right", padx=10)
+
+        # 🔥 创建日志显示文本框
+        self.log_textbox = ctk.CTkTextbox(
+            log_container,
+            font=ctk.CTkFont(family="Consolas", size=11),
+            wrap="word",
+            state="disabled"
+        )
+        self.log_textbox.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # 配置日志文本框的标签颜色 (CTkTextbox的tag_config不支持font参数)
+        self.log_textbox.tag_config("INFO", foreground="#4CAF50")
+        self.log_textbox.tag_config("SUCCESS", foreground="#2196F3")
+        self.log_textbox.tag_config("WARNING", foreground="#FF9800")
+        self.log_textbox.tag_config("ERROR", foreground="#F44336")
+        self.log_textbox.tag_config("HEADER", foreground="#9C27B0")
+        self.log_textbox.tag_config("PROGRESS", foreground="#00BCD4")
+
+        # 添加欢迎信息
+        self.add_log("=" * 70, "INFO")
+        self.add_log("🍁 红枫工具箱 - 数据采集系统", "HEADER")
+        self.add_log("=" * 70, "INFO")
+        self.add_log("✅ 系统已就绪,可以开始采集", "SUCCESS")
+        self.add_log("💡 提示:采集过程中的所有信息都会在这里实时显示", "INFO")
+        self.add_log("=" * 70, "INFO")
+        self.add_log("", "INFO")
+
+        print("✅ 实时日志显示区域初始化成功")
+
+    def init_tkweb_browser(self):
+        """🔥 初始化tkinterweb浏览器 - 已废弃,改用实时日志显示"""
+        pass
+
+    def setup_browser_area_old(self, parent_frame):
+        """🔥 设置右侧浏览器区域"""
+        import tkinter as tk
+
+        # 创建浏览器容器
+        browser_container = ctk.CTkFrame(parent_frame)
+        browser_container.pack(side="right", fill="both", expand=True, padx=(5, 0))
+
+        # 浏览器标题栏
+        browser_title_frame = ctk.CTkFrame(browser_container)
+        browser_title_frame.pack(fill="x", padx=5, pady=5)
+
+        # 浏览器状态标签
+        self.browser_status_label = ctk.CTkLabel(
+            browser_title_frame,
+            text="⏳ 浏览器未启动",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.browser_status_label.pack(side="left", padx=10)
+
+        # 浏览器工具栏
+        browser_toolbar = ctk.CTkFrame(browser_title_frame)
+        browser_toolbar.pack(side="right", padx=10)
+
+        # 刷新按钮
+        ctk.CTkButton(
+            browser_toolbar,
+            text="🔄",
+            width=40,
+            height=30,
+            command=self.refresh_browser
+        ).pack(side="left", padx=2)
+
+        # 后退按钮
+        ctk.CTkButton(
+            browser_toolbar,
+            text="◀",
+            width=40,
+            height=30,
+            command=self.browser_go_back
+        ).pack(side="left", padx=2)
+
+        # 前进按钮
+        ctk.CTkButton(
+            browser_toolbar,
+            text="▶",
+            width=40,
+            height=30,
+            command=self.browser_go_forward
+        ).pack(side="left", padx=2)
+
+        # PyQt浏览器容器（使用tk.Frame，因为需要嵌入PyQt窗口）
+        self.browser_frame = tk.Frame(browser_container, bg='white')
+        self.browser_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # 延迟初始化PyQt浏览器
+        self.root.after(500, self.init_pyqt_browser)
+
+    def init_pyqt_browser(self):
+        """🔥 初始化PyQt浏览器"""
+        try:
+            from tools.pyqt_browser import PyQtBrowserManager
+
+            self.update_browser_status("launching")
+
+            # 获取浏览器管理器
+            self.pyqt_browser = PyQtBrowserManager.get_instance()
+
+            # 初始化浏览器
+            if self.pyqt_browser.initialize():
+                self.update_browser_status("ready")
+
+                # 获取浏览器窗口
+                browser_widget = self.pyqt_browser.get_browser_widget()
+
+                # 将PyQt窗口嵌入到Tkinter Frame中
+                # 获取Tkinter Frame的窗口ID
+                frame_wid = self.browser_frame.winfo_id()
+
+                # 设置PyQt窗口的父窗口
+                import ctypes
+                from PyQt6.QtGui import QWindow
+                from PyQt6.QtCore import Qt
+
+                # 创建QWindow并设置父窗口
+                browser_widget.winId()  # 确保窗口已创建
+
+                # 显示浏览器窗口
+                browser_widget.setParent(None)  # 先取消父窗口
+                browser_widget.setWindowFlags(browser_widget.windowFlags() | Qt.WindowType.FramelessWindowHint)
+
+                # 使用Windows API将PyQt窗口嵌入到Tkinter Frame
+                if sys.platform == 'win32':
+                    import win32gui
+                    import win32con
+
+                    # 获取PyQt窗口句柄
+                    pyqt_hwnd = int(browser_widget.winId())
+
+                    # 设置PyQt窗口为Tkinter Frame的子窗口
+                    win32gui.SetParent(pyqt_hwnd, frame_wid)
+
+                    # 设置窗口样式
+                    win32gui.SetWindowLong(
+                        pyqt_hwnd,
+                        win32con.GWL_STYLE,
+                        win32con.WS_CHILD | win32con.WS_VISIBLE
+                    )
+
+                    # 调整窗口大小以填充Frame
+                    def resize_browser():
+                        try:
+                            width = self.browser_frame.winfo_width()
+                            height = self.browser_frame.winfo_height()
+                            if width > 1 and height > 1:
+                                win32gui.MoveWindow(pyqt_hwnd, 0, 0, width, height, True)
+                                browser_widget.resize(width, height)
+                        except:
+                            pass
+
+                    # 绑定Frame大小变化事件
+                    self.browser_frame.bind('<Configure>', lambda e: resize_browser())
+
+                    # 初始调整大小
+                    self.root.after(100, resize_browser)
+
+                # 加载欢迎页面
+                welcome_html = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <style>
+                        body {
+                            margin: 0;
+                            padding: 0;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            font-family: 'Microsoft YaHei', Arial, sans-serif;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            min-height: 100vh;
+                        }
+                        .container {
+                            background: rgba(255, 255, 255, 0.95);
+                            border-radius: 20px;
+                            padding: 40px;
+                            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                            text-align: center;
+                        }
+                        h1 {
+                            color: #667eea;
+                            font-size: 36px;
+                            margin-bottom: 15px;
+                        }
+                        .status {
+                            color: #4CAF50;
+                            font-size: 20px;
+                            margin: 20px 0;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>🍁 红枫工具箱</h1>
+                        <div class="status">✅ 浏览器已就绪</div>
+                        <p>PyQt6内嵌浏览器</p>
+                    </div>
+                </body>
+                </html>
+                """
+                self.pyqt_browser.load_html(welcome_html)
+
+                # 启动PyQt事件循环
+                self.root.after(10, self.pyqt_event_loop)
+
+                print("✅ PyQt浏览器初始化成功")
+            else:
+                self.update_browser_status("error")
+
+        except ImportError as e:
+            print(f"❌ PyQt6未安装: {e}")
+            self.update_browser_status("error")
+            self.browser_enabled = False
+        except Exception as e:
+            print(f"❌ 初始化PyQt浏览器失败: {e}")
+            import traceback
+            traceback.print_exc()
+            self.update_browser_status("error")
+
+    def pyqt_event_loop(self):
+        """🔥 PyQt事件循环（定期调用）"""
+        if self.pyqt_browser and self.browser_enabled:
+            try:
+                self.pyqt_browser.process_events()
+            except Exception as e:
+                print(f"⚠️ PyQt事件循环错误: {e}")
+
+        # 每10ms调用一次
+        self.root.after(10, self.pyqt_event_loop)
+
+    def update_browser_status(self, status: str):
+        """🔥 更新浏览器状态"""
+        status_map = {
+            "idle": "⏳ 浏览器未启动",
+            "launching": "🚀 正在启动浏览器...",
+            "ready": "✅ 浏览器就绪",
+            "login": "🔐 等待登录...",
+            "crawling": "🕷️ 正在采集数据...",
+            "error": "❌ 浏览器错误"
+        }
+        if hasattr(self, 'browser_status_label'):
+            self.browser_status_label.configure(text=status_map.get(status, status))
+
+    def refresh_browser(self):
+        """🔥 刷新浏览器"""
+        if self.pyqt_browser:
+            self.pyqt_browser.reload()
+
+    def browser_go_back(self):
+        """🔥 浏览器后退"""
+        if self.pyqt_browser:
+            self.pyqt_browser.go_back()
+
+    def browser_go_forward(self):
+        """🔥 浏览器前进"""
+        if self.pyqt_browser:
+            self.pyqt_browser.go_forward()
+
+    def sync_url_to_browser(self, url: str):
+        """🔥 同步URL到tkinterweb浏览器"""
+        if self.tkweb_browser and self.browser_enabled:
+            try:
+                self.tkweb_browser.load_url(url)
+                print(f"🔄 已同步URL到浏览器: {url}")
+            except Exception as e:
+                print(f"❌ 同步URL失败: {e}")
+
+    async def close_login_browser(self):
+        """🔥 关闭登录浏览器窗口（保留浏览器上下文和登录信息用于采集）"""
+        try:
+            if self.shared_page:
+                # 🔥 只关闭页面，不关闭上下文（保留登录信息）
+                await self.shared_page.close()
+                self.shared_page = None
+                print("✅ 登录浏览器页面已关闭（浏览器上下文已保留，登录信息有效）")
+
+            # ⚠️ 不关闭浏览器上下文和Playwright实例
+            # 这样采集时可以复用登录状态，不需要重新登录
+            print("✅ 登录浏览器窗口已关闭，登录信息已保留用于采集")
+
+            # 在内嵌浏览器中显示成功消息
+            if self.tkweb_browser and self.browser_enabled:
+                success_html = """
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <style>
+                            body {
+                                margin: 0;
+                                padding: 20px;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                font-family: 'Microsoft YaHei', Arial, sans-serif;
+                                color: white;
+                                text-align: center;
+                            }
+                            .container {
+                                background: rgba(255, 255, 255, 0.1);
+                                border-radius: 10px;
+                                padding: 30px;
+                                margin-top: 50px;
+                            }
+                            h1 {
+                                font-size: 28px;
+                                margin-bottom: 15px;
+                                color: #90EE90;
+                            }
+                            .status {
+                                color: #90EE90;
+                                font-size: 18px;
+                                margin: 15px 0;
+                                font-weight: bold;
+                            }
+                            p {
+                                font-size: 14px;
+                                opacity: 0.9;
+                                margin: 10px 0;
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <h1>✅ 登录成功！</h1>
+                            <div class="status">登录信息已保存</div>
+                            <p>浏览器窗口已关闭</p>
+                            <p>现在可以开始采集数据了</p>
+                        </div>
+                    </body>
+                    </html>
+                """
+                self.root.after(0, lambda: self.tkweb_browser.load_html(success_html))
+
+        except Exception as e:
+            print(f"❌ 关闭登录浏览器失败: {e}")
+
     def setup_control_bar(self):
         """设置底部控制栏"""
         control_frame = ctk.CTkFrame(self.main_frame)
@@ -810,6 +1205,7 @@ class MediaCrawlerGUI:
             state="disabled"
         )
         self.stop_button.pack(side="left", padx=5)
+
 
     def clear_keywords_placeholder(self, event):
         """清除关键词占位符"""
@@ -883,6 +1279,66 @@ class MediaCrawlerGUI:
             self.progress_bar.set(0)
             self.progress_text.configure(text=f"0/0 {content_type}")
         self.root.update_idletasks()
+
+    def add_log(self, message: str, level: str = "INFO"):
+        """添加日志到实时日志显示区域
+
+        Args:
+            message: 日志消息
+            level: 日志级别 (INFO, SUCCESS, WARNING, ERROR, HEADER, PROGRESS)
+        """
+        if not hasattr(self, 'log_textbox'):
+            return
+
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%H:%M:%S")
+
+        # 根据级别选择前缀
+        prefix_map = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅",
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "HEADER": "🎯",
+            "PROGRESS": "📊"
+        }
+        prefix = prefix_map.get(level, "ℹ️")
+
+        # 格式化日志消息
+        if level == "HEADER":
+            log_message = f"{message}\n"
+        elif level == "PROGRESS":
+            log_message = f"[{timestamp}] {prefix} {message}\n"
+        else:
+            log_message = f"[{timestamp}] {prefix} {message}\n"
+
+        # 添加到文本框
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.insert("end", log_message, level)
+        self.log_textbox.configure(state="disabled")
+
+        # 自动滚动到底部
+        self.log_textbox.see("end")
+
+        # 更新界面
+        self.root.update_idletasks()
+
+    def clear_log_display(self):
+        """清空日志显示"""
+        if not hasattr(self, 'log_textbox'):
+            return
+
+        self.log_textbox.configure(state="normal")
+        self.log_textbox.delete("1.0", "end")
+        self.log_textbox.configure(state="disabled")
+
+        # 重新添加欢迎信息
+        self.add_log("=" * 70, "INFO")
+        self.add_log("🍁 红枫工具箱 - 数据采集系统", "HEADER")
+        self.add_log("=" * 70, "INFO")
+        self.add_log("✅ 日志已清空", "SUCCESS")
+        self.add_log("=" * 70, "INFO")
+        self.add_log("", "INFO")
 
     def update_video_progress(self, current: int, total: int):
         """🔥 更新当前视频/内容进度"""
@@ -1304,8 +1760,8 @@ class MediaCrawlerGUI:
     async def perform_login(self, platform: str):
         """🔥 执行统一浏览器登录操作"""
         try:
-            # 初始化统一浏览器
-            if not await self.init_shared_browser(platform):
+            # 初始化统一浏览器（登录时使用可见模式）
+            if not await self.init_shared_browser(platform, headless=False):
                 raise Exception("浏览器启动失败")
 
             import config
@@ -1342,6 +1798,11 @@ class MediaCrawlerGUI:
                     print(f"🌐 尝试加载{platform_name}页面 (第{attempt + 1}/{max_retries}次)...")
                     await self.shared_page.goto(url, wait_until='domcontentloaded', timeout=30000)
                     print(f"✅ {platform_name}页面加载成功")
+
+                    # 🔥 同步URL到tkinterweb浏览器
+                    if self.tkweb_browser and self.browser_enabled:
+                        self.root.after(0, lambda u=url: self.sync_url_to_browser(u))
+
                     break
                 except Exception as e:
                     print(f"⚠️ 页面加载失败 (第{attempt + 1}次): {e}")
@@ -1401,18 +1862,28 @@ class MediaCrawlerGUI:
                 print(f"💾 自动保存{platform}登录信息...")
             save_success = await self.save_login_info(platform)
 
+            # 🔥 登录完成后不关闭浏览器窗口,保留供采集使用
             if save_success:
-                self.root.after(0, lambda p=platform: self.update_login_status(p))
+                print(f"✅ {platform_name}登录信息保存成功")
                 self.root.after(0, lambda pn=platform_name: self.update_status(f"{pn}登录完成"))
+
+                # 🔥 不关闭浏览器页面,保留供采集使用
+                print(f"✅ 浏览器保持运行,可以开始采集")
+
+                self.root.after(0, lambda pn=platform_name: self.update_status(f"✅ {pn}登录成功！"))
+                self.root.after(0, lambda p=platform: self.update_login_status(p))
                 self.root.after(0, lambda pn=platform_name: messagebox.showinfo(
                     "✅ 登录成功",
                     f"🎉 {pn}登录信息已保存！\n\n"
+                    f"✅ 登录信息已保存\n"
                     f"💾 下次启动将自动恢复登录状态\n"
                     f"🔥 浏览器将保持运行状态\n"
-                    f"🚀 现在可以开始数据采集"
+                    f"🚀 现在可以开始数据采集\n\n"
+                    f"⚠️ 请不要手动关闭浏览器窗口！"
                 ))
-                print(f"✅ {platform_name}统一浏览器登录完成")
             else:
+                print(f"❌ {platform_name}登录信息保存失败")
+                self.root.after(0, lambda pn=platform_name: self.update_status(f"❌ {pn}登录失败"))
                 self.root.after(0, lambda pn=platform_name: messagebox.showwarning(
                     "⚠️ 保存失败",
                     f"{pn}登录信息保存失败\n\n"
@@ -1423,6 +1894,8 @@ class MediaCrawlerGUI:
                     f"1. 确认已完成登录\n"
                     f"2. 点击'登录管理'中的'💾保存'按钮手动保存"
                 ))
+
+            print(f"✅ {platform_name}统一浏览器登录完成")
 
         except Exception as e:
             error_msg = str(e)
@@ -1532,6 +2005,16 @@ class MediaCrawlerGUI:
             self.stop_button.configure(state="normal")
             self.progress_bar.set(0)
             self.update_status(f"🔥 使用{platform_name}统一浏览器开始采集...")
+
+            # 🔥 添加采集开始日志
+            self.add_log("=" * 70, "INFO")
+            self.add_log(f"🚀 开始采集 - {platform_name}", "HEADER")
+            self.add_log("=" * 70, "INFO")
+
+            # 显示采集配置
+            mode_names = {"search": "关键词搜索", "detail": "指定内容", "creator": "创作者主页"}
+            mode_name = mode_names.get(crawler_mode, crawler_mode)
+            self.add_log(f"📝 采集模式: {mode_name}", "INFO")
 
             # 在新线程中运行采集任务
             self.task_thread = threading.Thread(target=self.run_crawler_task)
@@ -1665,8 +2148,8 @@ class MediaCrawlerGUI:
                     print("🚀 正在自动加载登录信息并启动浏览器...")
 
                     # 🔥 修复：使用正确的方法名
-                    # 自动启动统一浏览器并加载登录信息
-                    await self.init_shared_browser("dy")
+                    # 自动启动统一浏览器并加载登录信息（采集时使用后台模式）
+                    await self.init_shared_browser("dy", headless=True)
 
                     if not self.browser_ready or not self.shared_context:
                         logger.error("浏览器启动失败")
@@ -1677,6 +2160,14 @@ class MediaCrawlerGUI:
                 else:
                     logger.error(f"未找到有效登录信息: {login_status.get('reason')}")
                     raise Exception(f"未找到有效登录信息: {login_status.get('reason')}\n请先在'登录管理'中完成抖音登录")
+
+            # 🔥 确保page存在（登录后page可能已关闭）
+            if not self.shared_page and self.shared_context:
+                logger.info("检测到page已关闭，正在创建新的page...")
+                print("🔄 检测到page已关闭，正在创建新的page...")
+                self.shared_page = await self.shared_context.new_page()
+                logger.info("✅ 新page创建成功")
+                print("✅ 新page创建成功")
 
             # 🔥 获取采集模式
             crawler_mode = self.crawler_type_var.get()
@@ -1746,6 +2237,10 @@ class MediaCrawlerGUI:
                 for index, input_item in enumerate(input_list, 1):
                     if self.stop_flag:
                         print(f"⏹️ 用户停止采集")
+                        # 🔥 显示停止状态
+                        self.root.after(0, lambda: self.add_log(
+                            f"⏹️ 用户手动停止采集 (已完成 {index-1}/{total_groups})", "WARNING"
+                        ))
                         break
 
                     print(f"\n{'='*60}")
@@ -1755,6 +2250,11 @@ class MediaCrawlerGUI:
                     # 更新状态
                     self.root.after(0, lambda i=index, t=total_groups, item=input_item:
                         self.update_status(f"[{i}/{t}] 正在采集: {item}"))
+
+                    # 🔥 显示采集进度日志
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item:
+                        self.add_log(f"🎵 抖音 | 开始采集: {item} ({i}/{t})", "PROGRESS")
+                    )
 
                     # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
                     if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
@@ -1772,14 +2272,24 @@ class MediaCrawlerGUI:
                     print(f"✅ [{index}/{total_groups}] {mode_name} '{input_item}' 采集完成\n")
                     logger.info(f"[{index}/{total_groups}] {mode_name} '{input_item}' 采集完成")
 
+                    # 🔥 更新完成进度日志
+                    status = "完成" if index == total_groups else "进行中"
+                    level = "SUCCESS" if index == total_groups else "INFO"
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item, s=status, lv=level:
+                        self.add_log(f"✅ 完成采集: {item} ({i}/{t}) - {s}", lv)
+                    )
+
             print(f"\n🎉 批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
             logger.info(f"批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
 
-            # 🔥 采集完成后关闭浏览器,释放资源
-            print("\n🧹 正在关闭浏览器,释放资源...")
-            logger.info("采集完成,关闭浏览器")
-            self.cleanup_browser()
-            print("✅ 浏览器已关闭\n")
+            # 🔥 显示完成状态日志
+            self.root.after(0, lambda count=len(input_list), name=mode_name:
+                self.add_log(f"🎉 批量采集全部完成！共完成 {count} 个{name}", "SUCCESS")
+            )
+
+            # 🔥 采集完成后不关闭浏览器，保留登录状态供下次使用
+            print("\n✅ 采集完成！浏览器保持运行，登录状态已保留\n")
+            logger.info("采集完成，浏览器保持运行")
 
         except Exception as e:
             logger.error(f"抖音统一浏览器采集失败: {e}", exc_info=True)
@@ -1787,9 +2297,13 @@ class MediaCrawlerGUI:
             import traceback
             traceback.print_exc()
 
-            # 🔥 出错也要关闭浏览器
-            print("\n🧹 正在关闭浏览器...")
-            self.cleanup_browser()
+            # 🔥 显示错误日志
+            self.root.after(0, lambda err=str(e):
+                self.add_log(f"❌ 抖音采集失败: {err}", "ERROR")
+            )
+
+            # 🔥 出错时不关闭浏览器，保留登录状态
+            print("\n⚠️ 采集出错，但浏览器保持运行，登录状态已保留")
             raise
 
     async def run_xiaohongshu_unified_crawler(self, max_count: int, content_type: str):
@@ -1811,8 +2325,8 @@ class MediaCrawlerGUI:
                     print("🚀 正在自动加载登录信息并启动浏览器...")
 
                     # 🔥 修复：使用正确的方法名
-                    # 自动启动统一浏览器并加载登录信息
-                    await self.init_shared_browser("xhs")
+                    # 自动启动统一浏览器并加载登录信息（采集时使用后台模式）
+                    await self.init_shared_browser("xhs", headless=True)
 
                     if not self.browser_ready or not self.shared_context:
                         logger.error("浏览器启动失败")
@@ -1823,6 +2337,14 @@ class MediaCrawlerGUI:
                 else:
                     logger.error(f"未找到有效登录信息: {login_status.get('reason')}")
                     raise Exception(f"未找到有效登录信息: {login_status.get('reason')}\n请先在'登录管理'中完成小红书登录")
+
+            # 🔥 确保page存在（登录后page可能已关闭）
+            if not self.shared_page and self.shared_context:
+                logger.info("检测到page已关闭，正在创建新的page...")
+                print("🔄 检测到page已关闭，正在创建新的page...")
+                self.shared_page = await self.shared_context.new_page()
+                logger.info("✅ 新page创建成功")
+                print("✅ 新page创建成功")
 
             # 🔥 获取采集模式
             crawler_mode = self.crawler_type_var.get()
@@ -1891,6 +2413,10 @@ class MediaCrawlerGUI:
                 for index, input_item in enumerate(input_list, 1):
                     if self.stop_flag:
                         print(f"⏹️ 用户停止采集")
+                        # 🔥 显示停止状态
+                        self.root.after(0, lambda: self.add_log(
+                            f"⏹️ 用户手动停止采集 (已完成 {index-1}/{total_groups})", "WARNING"
+                        ))
                         break
 
                     print(f"\n{'='*60}")
@@ -1900,6 +2426,11 @@ class MediaCrawlerGUI:
                     # 更新状态
                     self.root.after(0, lambda i=index, t=total_groups, item=input_item:
                         self.update_status(f"[{i}/{t}] 正在采集: {item}"))
+
+                    # 🔥 显示采集进度日志
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item:
+                        self.add_log(f"📕 小红书 | 开始采集: {item} ({i}/{t})", "PROGRESS")
+                    )
 
                     # 🔥 使用 asyncio.run_coroutine_threadsafe 在浏览器事件循环中运行
                     if hasattr(self, 'browser_loop') and self.browser_loop and not self.browser_loop.is_closed():
@@ -1915,14 +2446,24 @@ class MediaCrawlerGUI:
                     print(f"✅ [{index}/{total_groups}] {mode_name} '{input_item}' 采集完成\n")
                     logger.info(f"[{index}/{total_groups}] {mode_name} '{input_item}' 采集完成")
 
+                    # 🔥 更新完成进度日志
+                    status = "完成" if index == total_groups else "进行中"
+                    level = "SUCCESS" if index == total_groups else "INFO"
+                    self.root.after(0, lambda i=index, t=total_groups, item=input_item, s=status, lv=level:
+                        self.add_log(f"✅ 完成采集: {item} ({i}/{t}) - {s}", lv)
+                    )
+
             print(f"\n🎉 批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
             logger.info(f"批量采集全部完成！共完成 {len(input_list)} 个{mode_name}")
 
-            # 🔥 采集完成后关闭浏览器,释放资源
-            print("\n🧹 正在关闭浏览器,释放资源...")
-            logger.info("采集完成,关闭浏览器")
-            self.cleanup_browser()
-            print("✅ 浏览器已关闭\n")
+            # 🔥 显示完成状态日志
+            self.root.after(0, lambda count=len(input_list), name=mode_name:
+                self.add_log(f"🎉 批量采集全部完成！共完成 {count} 个{name}", "SUCCESS")
+            )
+
+            # 🔥 采集完成后不关闭浏览器，保留登录状态供下次使用
+            print("\n✅ 采集完成！浏览器保持运行，登录状态已保留\n")
+            logger.info("采集完成，浏览器保持运行")
 
         except Exception as e:
             logger.error(f"小红书统一浏览器采集失败: {e}", exc_info=True)
@@ -1930,9 +2471,13 @@ class MediaCrawlerGUI:
             import traceback
             traceback.print_exc()
 
-            # 🔥 出错也要关闭浏览器
-            print("\n🧹 正在关闭浏览器...")
-            self.cleanup_browser()
+            # 🔥 显示错误日志
+            self.root.after(0, lambda err=str(e):
+                self.add_log(f"❌ 小红书采集失败: {err}", "ERROR")
+            )
+
+            # 🔥 出错时不关闭浏览器，保留登录状态
+            print("\n⚠️ 采集出错，但浏览器保持运行，登录状态已保留")
             raise
 
     async def async_douyin_crawler(self, input_item: str, max_count: int, content_type: str,
@@ -1973,6 +2518,11 @@ class MediaCrawlerGUI:
                 self.root.after(0, lambda: self.progress_bar.set(progress))
                 self.root.after(0, lambda: self.progress_text.configure(text=progress_text))
                 self.root.after(0, lambda: self.update_status(f"🔥 {message}"))
+
+                # 🔥 添加日志显示
+                self.root.after(0, lambda msg=message, cur=current, tot=total:
+                    self.add_log(f"📊 进度: [{cur}/{tot}] {msg}", "INFO")
+                )
 
                 print(f"📊 进度: [{current}/{total}] {message}")
 
@@ -2514,9 +3064,13 @@ MediaCrawler 使用帮助
         """
         messagebox.showinfo("使用帮助", help_text)
 
-    async def init_shared_browser(self, platform: str):
+    async def init_shared_browser(self, platform: str, headless: bool = False):
         """
         🔥 初始化干净无痕浏览器 - 登录和采集使用同一个浏览器实例，但保存登录信息
+
+        Args:
+            platform: 平台标识
+            headless: 是否使用无头模式（登录时False，采集时True）
         """
         try:
             from playwright.async_api import async_playwright
@@ -2635,7 +3189,7 @@ MediaCrawler 使用帮助
                 # 浏览器路径完全由 PLAYWRIGHT_BROWSERS_PATH 环境变量控制
                 launch_options = {
                     "user_data_dir": self.clean_browser_dir,  # 使用固定的干净目录
-                    "headless": False,
+                    "headless": headless,  # 🔥 根据参数决定是否无头模式
                     "viewport": {"width": 1920, "height": 1080},
                     "user_agent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     "args": [
@@ -2654,10 +3208,13 @@ MediaCrawler 使用帮助
                         '--disable-ipc-flooding-protection',
                         '--disable-infobars',
                         '--window-size=1920,1080',
-                        '--start-maximized'
-                    ],
+                    ] + ([] if headless else ['--start-maximized']),  # 🔥 只在非无头模式下最大化
                     "ignore_default_args": ['--enable-automation']
                 }
+
+                # 🔥 打印浏览器模式
+                mode_text = "后台模式(headless)" if headless else "可见模式"
+                print(f"🎯 浏览器模式: {mode_text}")
 
                 print(f"🔄 正在启动浏览器上下文...")
                 print(f"   user_data_dir: {self.clean_browser_dir}")
@@ -3208,6 +3765,12 @@ MediaCrawler 使用帮助
     def on_closing(self):
         """窗口关闭时的清理操作"""
         try:
+            # 🔥 清理tkinterweb浏览器
+            if self.tkweb_browser and self.browser_enabled:
+                print("🧹 正在关闭tkinterweb浏览器...")
+                self.tkweb_browser.shutdown()
+                print("✅ tkinterweb浏览器已关闭")
+
             # 异步清理浏览器
             if self.browser_ready:
                 # 使用保存的事件循环清理浏览器

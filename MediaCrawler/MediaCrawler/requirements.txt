@@ -24,3 +24,6 @@ cryptography>=45.0.7
 alembic>=1.16.5
 asyncmy>=0.2.10
 sqlalchemy>=2.0.43
+
+# tkinterweb浏览器内嵌支持（支持Python 3.12，原生Tkinter组件，跨平台兼容）
+tkinterweb>=4.8.0
