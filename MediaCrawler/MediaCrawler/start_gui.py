@@ -146,9 +146,44 @@ def show_error_dialog(title, message):
         # 如果GUI不可用，静默失败
         pass
 
+def check_critical_dependencies():
+    """检查关键依赖是否可用"""
+    missing_deps = []
+
+    # 检查关键模块
+    critical_modules = [
+        ('customtkinter', 'CustomTkinter GUI库'),
+        ('playwright', 'Playwright浏览器自动化'),
+        ('asyncio', 'Python异步库'),
+    ]
+
+    for module_name, display_name in critical_modules:
+        try:
+            __import__(module_name)
+            safe_print(f"✅ {display_name}: 已加载")
+        except ImportError as e:
+            missing_deps.append(f"{display_name} ({module_name})")
+            safe_print(f"❌ {display_name}: 缺失 - {e}")
+
+    if missing_deps:
+        error_msg = (
+            "缺少关键依赖:\n\n" +
+            "\n".join(f"• {dep}" for dep in missing_deps) +
+            "\n\n请重新下载完整安装包或联系开发者"
+        )
+        show_error_dialog("依赖检查失败", error_msg)
+        return False
+
+    safe_print("✅ 所有关键依赖检查通过")
+    return True
+
 def start_gui():
     """启动GUI应用"""
     try:
+        # 🔥 V2.1新增: 检查关键依赖
+        if not check_critical_dependencies():
+            return False
+
         # 启动GUI应用
         from gui_app import main
         main()
@@ -162,9 +197,23 @@ def start_gui():
         return False
 
     except Exception as e:
-        error_msg = f"启动失败: {e}\n\n请检查错误信息并重试"
+        import traceback
+        error_detail = traceback.format_exc()
+        error_msg = f"启动失败: {e}\n\n详细错误:\n{error_detail}"
         safe_print(f"❌ {error_msg}")
-        show_error_dialog("启动失败", error_msg)
+
+        # 保存错误日志
+        try:
+            with open("crash_log.txt", "w", encoding="utf-8") as f:
+                f.write(f"启动失败\n")
+                f.write(f"时间: {__import__('datetime').datetime.now()}\n")
+                f.write(f"错误: {e}\n\n")
+                f.write(f"详细信息:\n{error_detail}\n")
+            safe_print("💾 错误日志已保存到: crash_log.txt")
+        except:
+            pass
+
+        show_error_dialog("启动失败", f"启动失败: {e}\n\n错误日志已保存到 crash_log.txt")
         return False
 
 def main():
